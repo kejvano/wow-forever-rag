@@ -28,10 +28,17 @@ def already_fetched(url: str) -> bool:
     return (Path(RAW_DIR) / f"{article_id(url)}.txt").exists()
 
 
+def extract_from_feed(entry) -> str | None:
+    content = entry.get("content")
+    if not content:
+        return None
+    return trafilatura.extract(content[0].value, include_comments=False)
+
+
 def fetch_article(url: str) -> str | None:
     resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
     resp.raise_for_status()
-    return trafilatura.extract(resp.text, include_comments=False)
+    return trafilatura.extract(resp.text, include_comments=False, favor_precision=True)
 
 
 def save(url: str, title: str, published: str | None, text: str) -> None:
@@ -59,7 +66,7 @@ def run() -> None:
             url = entry.get("link")
             if not url or not is_relevant(entry) or already_fetched(url):
                 continue
-            text = fetch_article(url)
+            text = extract_from_feed(entry) or fetch_article(url)
             if not text:
                 print(f"  no text extracted: {url}")
                 continue
