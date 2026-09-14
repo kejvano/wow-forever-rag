@@ -1,5 +1,5 @@
 FEEDS = [
-    
+    "https://www.wowhead.com/news/rss/all",
 ]
 
 KEYWORDS = ["warcraft forever", "wow forever", "classic+", "classic plus"]
