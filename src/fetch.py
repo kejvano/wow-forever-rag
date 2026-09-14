@@ -3,6 +3,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from config import FEEDS, SEED_URLS, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELAY_SECONDS
 
 import feedparser
 import requests
@@ -12,6 +13,9 @@ from config import FEEDS, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELAY_SECONDS
 
 
 def is_relevant(entry) -> bool:
+    tags = {t.term.lower() for t in entry.get("tags", [])}
+    if "forever" in tags:
+        return True
     haystack = (entry.get("title", "") + " " + entry.get("summary", "")).lower()
     return any(k in haystack for k in KEYWORDS)
 
@@ -47,6 +51,7 @@ def save(url: str, title: str, published: str | None, text: str) -> None:
 
 def run() -> None:
     new_count = 0
+
     for feed_url in FEEDS:
         feed = feedparser.parse(feed_url)
         print(f"{feed_url}: {len(feed.entries)} entries")
@@ -62,6 +67,19 @@ def run() -> None:
             new_count += 1
             print(f"  saved: {entry.get('title')}")
             time.sleep(REQUEST_DELAY_SECONDS)
+
+    for url in SEED_URLS:
+        if already_fetched(url):
+            continue
+        text = fetch_article(url)
+        if not text:
+            print(f"  no text extracted: {url}")
+            continue
+        save(url, title="", published=None, text=text)
+        new_count += 1
+        print(f"  saved seed: {url}")
+        time.sleep(REQUEST_DELAY_SECONDS)
+
     print(f"done, {new_count} new articles")
 
 
