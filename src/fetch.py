@@ -8,6 +8,7 @@ from config import FEEDS, SEED_URLS, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELA
 import feedparser
 import requests
 import trafilatura
+import re
 
 from config import FEEDS, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELAY_SECONDS
 
@@ -56,6 +57,14 @@ def save(url: str, title: str, published: str | None, text: str) -> None:
     (out / f"{aid}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
+TRAILING_NAV_PATTERN = re.compile(r"^BlizzCon 2026( Day \d)?$", re.MULTILINE)
+
+
+def strip_trailing_nav(text: str) -> str:
+    match = TRAILING_NAV_PATTERN.search(text)
+    return text[: match.start()].rstrip() if match else text
+
+
 def run() -> None:
     new_count = 0
 
@@ -67,6 +76,7 @@ def run() -> None:
             if not url or not is_relevant(entry) or already_fetched(url):
                 continue
             text = extract_from_feed(entry) or fetch_article(url)
+            text = strip_trailing_nav(text) if text else None
             if not text:
                 print(f"  no text extracted: {url}")
                 continue
