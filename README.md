@@ -10,11 +10,16 @@ The level cap in the WoW: Forever Beta will start at level 20 and then increase
 to level 30 at a later time. The cap will remain at 30 for the rest of Beta.
 ```
 
+```
+$ python src/ask.py what should I eat for dinner
+I don't have information about that.
+```
+
 ## Why
 
-This project is a retrieval-augmented generation (RAG) pipeline: instead of training a model, the relevant articles are found at question time and handed to the model as context. New articles show up in answers within hours of being published, with no retraining.
+When I started this the announcement for World of Warcraft Forever was very recent and LLMs had not yet been trained on this new information. I saw this as an opportunity to explore something I was interested in: learning how to work with LLMs and experimenting with different ways they could be used. At the same time, I wanted to create something fun that I could share with my friends and that had a practical use.
 
-I created this project because, at the time, the announcement for World of Warcraft Forever was very recent and LLMs had not yet been trained on this new information. I saw this as an opportunity to explore something I was interested in: learning how to work with LLMs and experimenting with different ways they could be used. At the same time, I wanted to create something fun that I could share with my friends and that had a practical use.
+This project is a retrieval-augmented generation (RAG) pipeline: instead of training a model, the relevant articles are found at question time and handed to the model as context. New articles show up in answers within hours of being published, with no retraining.
 
 ## How it works
 
@@ -42,7 +47,7 @@ Seed URLs ────────┘                        │
 Requires Python 3.11+ and an OpenAI API key.
 
 ```bash
-git clone https://github.com/[your-username]/wow-forever-rag.git
+git clone https://github.com/kejvano/wow-forever-rag.git
 cd wow-forever-rag
 python -m venv .venv
 .venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
