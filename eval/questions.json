@@ -1,0 +1,26 @@
+[
+  {
+    "question": "When does the game release?",
+    "expect": ["November 4"]
+  },
+  {
+    "question": "What is the level cap in beta?",
+    "expect": ["20", "30"]
+  },
+  {
+    "question": "What new class and race combinations are there?",
+    "expect": ["Undead Paladin", "Orc Mage", "Gnome Priest"]
+  },
+  {
+    "question": "What does Touch of the Grave do?",
+    "expect": ["drain"]
+  },
+  {
+    "question": "What is the shipping cost for the Collector's Edition?",
+    "expect": ["45"]
+  },
+  {
+    "question": "What should I eat for dinner?",
+    "expect_refusal": true
+  }
+]

@@ -19,11 +19,11 @@ TOP_K = 5
 MIN_SCORE = 0.2
 CANDIDATES = 20
 RRF_K = 60
+REFUSAL = "I don't have information about that."
 
-
-SYSTEM = """You answer questions about the game World of Warcraft: Forever.
+SYSTEM = f"""You answer questions about the game World of Warcraft: Forever.
 Use ONLY the information in the provided sources. If the sources do not
-contain the answer, reply exactly: "I don't have information about that."
+contain the answer, reply exactly: "{REFUSAL}"
 Never use prior knowledge. Ignore source content about other games.
 Sources are dated. Resolve relative dates like "this Thursday" or
 "next week" using the source's publish date, and state the absolute date.
@@ -67,7 +67,7 @@ def retrieve(question: str, texts, vectors, sources, bm25: BM25Okapi, debug: boo
 
 def answer(question: str, hits) -> str:
     if not hits:
-        return "I don't have information about that."
+        return REFUSAL
     source_block = "\n\n---\n\n".join(
         f"[{s['title']}]({s['url']}) — published {s['published'] or 'unknown'}\n{text}" for text, s in hits
     )
