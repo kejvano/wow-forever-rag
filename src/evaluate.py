@@ -2,10 +2,7 @@ import json
 import sys
 from pathlib import Path
 
-from rank_bm25 import BM25Okapi
-
-from ask import answer, retrieve, tokenize, REFUSAL
-from db import connect, load_all_chunks
+from ask import answer, retrieve, build_search, REFUSAL
 
 QUESTIONS_PATH = "eval/questions.json"
 
@@ -18,9 +15,7 @@ def check(expected: dict, got: str) -> bool:
 
 def run() -> int:
     cases = json.loads(Path(QUESTIONS_PATH).read_text(encoding="utf-8"))
-    conn = connect()
-    texts, vectors, sources = load_all_chunks(conn)
-    bm25 = BM25Okapi([tokenize(t) for t in texts])
+    texts, vectors, sources, bm25 = build_search()
 
     passed = 0
     for case in cases:

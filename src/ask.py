@@ -82,12 +82,31 @@ def answer(question: str, hits) -> str:
     return resp.choices[0].message.content
 
 
+def build_search():
+    conn = connect()
+    texts, vectors, sources = load_all_chunks(conn)
+    bm25 = BM25Okapi([tokenize(t) for t in texts])
+    return texts, vectors, sources, bm25
+
+
+def ask(question: str, search, debug: bool = False) -> tuple[str, list[dict]]:
+    texts, vectors, sources, bm25 = search
+    hits = retrieve(question, texts, vectors, sources, bm25, debug)
+    reply = answer(question, hits)
+    cited = []
+    for _, s in hits:
+        if s not in cited:
+            cited.append(s)
+    return reply, cited
+
+
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if a != "--debug"]
     debug = "--debug" in sys.argv
     question = " ".join(args) or "When does the game release?"
-    conn = connect()
-    texts, vectors, sources = load_all_chunks(conn)
-    bm25 = BM25Okapi([tokenize(t) for t in texts])
-    print(f"{len(texts)} chunks loaded")
-    print(answer(question, retrieve(question, texts, vectors, sources, bm25, debug)))
+    search = build_search()
+    print(f"{len(search[0])} chunks loaded")
+    reply, cited = ask(question, search, debug)
+    print(reply)
+    for s in cited:
+        print(f"  - {s['title']} ({s['url']})")
