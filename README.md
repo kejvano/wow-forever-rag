@@ -4,6 +4,8 @@ A question-answering bot for *World of Warcraft: Forever* that keeps itself up t
 
 It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected — with sources. If the answer isn't in the collected articles, it says so instead of guessing.
 
+![Screenshot](docs/screenshot.png)
+
 ```
 $ python src/ask.py what is the level cap in beta
 The level cap in the WoW: Forever Beta will start at level 20 and then increase
@@ -40,7 +42,7 @@ Seed URLs ────────┘                        │
 
 **Ask.** A question is run through both BM25 keyword search and cosine similarity over the embeddings. The two rankings are merged with reciprocal rank fusion, the top chunks are sent to the model with their source and publish date, and the model is instructed to answer only from those sources.
 
-**Update.** `update.py` runs fetch and index together and is scheduled every 6 hours through the OS task scheduler.
+**Update.** `update.py` runs fetch and index together and is scheduled every 6 hours through the OS task scheduler, and notifies the running web server to reload the index.
 
 ## Setup
 
@@ -75,6 +77,21 @@ To keep the index current, schedule `src/update.py`. On Windows this is a Task S
 0 */6 * * * cd /path/to/wow-forever-rag && .venv/bin/python src/update.py >> logs/update.log 2>&1
 ```
 
+## Web interface
+
+```bash
+uvicorn app:app --app-dir src
+```
+
+Open http://127.0.0.1:8000 for a minimal page: type a question, get an answer with links to the articles it was drawn from. FastAPI's generated API documentation is at http://127.0.0.1:8000/docs, where the endpoints can be tried directly.
+
+| Endpoint | Description |
+|---|---|
+| `POST /ask` | `{"question": "..."}` → `{"answer": "...", "sources": [...]}` |
+| `POST /reload` | Reloads the index from disk; called by `update.py` after each scheduled run so new articles are served without a restart. |
+
+The index is loaded once at startup and held in memory, so a question costs one embedding call and one chat completion; nothing is read from the database per request.
+
 ## Evaluation
 
 `eval/questions.json` holds a set of questions with expected answer fragments and, where known, the article the answer should come from. `python src/evaluate.py` runs them all and reports which cases fail at retrieval and which fail at generation.
@@ -99,7 +116,6 @@ This is a regression check, not a benchmark, but it has already earned its keep:
 
 ## Possible next steps
 
-- Web interface (FastAPI) so the bot can be used without a terminal.
 - Merge adjacent chunks from the same article before sending them to the model.
 - Local model support via Ollama for fully offline operation.
 - Store the embedding model name with the index and refuse to mix models.
