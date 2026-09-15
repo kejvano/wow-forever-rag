@@ -36,10 +36,13 @@ def extract_from_feed(entry) -> str | None:
     return trafilatura.extract(content[0].value, include_comments=False)
 
 
-def fetch_article(url: str) -> str | None:
+def fetch_article(url: str) -> tuple[str | None, str, str | None]:
     resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
     resp.raise_for_status()
-    return trafilatura.extract(resp.text, include_comments=False, favor_precision=True)
+    doc = trafilatura.bare_extraction(resp.text, include_comments=False, favor_precision=True)
+    if not doc:
+        return None, "", None
+    return doc.text, doc.title or "", doc.date
 
 
 def save(url: str, title: str, published: str | None, text: str) -> None:
@@ -70,16 +73,18 @@ def run() -> None:
 
     for feed_url in FEEDS:
         feed = feedparser.parse(feed_url)
+        if feed.bozo:
+            print(f"{feed_url}: failed to parse ({feed.bozo_exception})")
+            continue
         print(f"{feed_url}: {len(feed.entries)} entries")
         for entry in feed.entries:
             url = entry.get("link")
             if not url or not is_relevant(entry) or already_fetched(url):
                 continue
-            text = extract_from_feed(entry) or fetch_article(url)
-            text = strip_trailing_nav(text) if text else None
+            text = extract_from_feed(entry)
             if not text:
-                print(f"  no text extracted: {url}")
-                continue
+                text, _, _ = fetch_article(url)
+            text = strip_trailing_nav(text) if text else None
             save(url, entry.get("title", ""), entry.get("published"), text)
             new_count += 1
             print(f"  saved: {entry.get('title')}")
@@ -88,11 +93,11 @@ def run() -> None:
     for url in SEED_URLS:
         if already_fetched(url):
             continue
-        text = fetch_article(url)
+        text, title, published = fetch_article(url)
         if not text:
             print(f"  no text extracted: {url}")
             continue
-        save(url, title="", published=None, text=text)
+        save(url, title, published, text)
         new_count += 1
         print(f"  saved seed: {url}")
         time.sleep(REQUEST_DELAY_SECONDS)
