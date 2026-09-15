@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from config import FEEDS, SEED_URLS, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELAY_SECONDS
+from bs4 import BeautifulSoup
 
 import feedparser
 import requests
@@ -36,13 +37,29 @@ def extract_from_feed(entry) -> str | None:
     return trafilatura.extract(content[0].value, include_comments=False)
 
 
+DATE_PUBLISHED_PATTERN = re.compile(r'"datePublished":\s*"([^"]+)"')
+
+
+def fallback_metadata(html: str) -> tuple[str, str | None]:
+    soup = BeautifulSoup(html, "html.parser")
+    og = soup.find("meta", property="og:title")
+    title = og["content"].strip() if og and og.get("content") else ""
+    match = DATE_PUBLISHED_PATTERN.search(html)
+    return title, match.group(1) if match else None
+
+
 def fetch_article(url: str) -> tuple[str | None, str, str | None]:
     resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
     resp.raise_for_status()
     doc = trafilatura.bare_extraction(resp.text, include_comments=False, favor_precision=True)
     if not doc:
         return None, "", None
-    return doc.text, doc.title or "", doc.date
+    title, published = doc.title, doc.date
+    if not title or not published:
+        fb_title, fb_date = fallback_metadata(resp.text)
+        title = title or fb_title
+        published = published or fb_date
+    return doc.text, title or "", published
 
 
 def save(url: str, title: str, published: str | None, text: str) -> None:
