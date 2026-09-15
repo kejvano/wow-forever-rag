@@ -1,23 +1,33 @@
 [
   {
     "question": "When does the game release?",
-    "expect": ["November 4"]
+    "expect": ["November 4"],
+    "expect_source": "Roundup"
   },
   {
     "question": "What is the level cap in beta?",
-    "expect": ["20", "30"]
+    "expect": ["20", "30"],
+    "expect_source": "Destin Interview"
   },
   {
     "question": "What new class and race combinations are there?",
-    "expect": ["Undead Paladin", "Orc Mage", "Gnome Priest"]
+    "expect": ["Undead Paladin", "Orc Mage", "Gnome Priest"],
+    "expect_source": "Deep Dive"
   },
   {
     "question": "What does Touch of the Grave do?",
-    "expect": ["drain"]
+    "expect": ["drain"],
+    "expect_source": "Roundup"
+  },
+  {
+    "question": "What is Seal of Fury?",
+    "expect": ["seal"],
+    "expect_source": "Paladins Now Have a Taunt"
   },
   {
     "question": "What is the shipping cost for the Collector's Edition?",
-    "expect": ["45"]
+    "expect": ["45"],
+    "expect_source": "Roundup"
   },
   {
     "question": "What should I eat for dinner?",

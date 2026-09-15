@@ -24,12 +24,19 @@ def run() -> int:
 
     passed = 0
     for case in cases:
-        got = answer(case["question"], retrieve(case["question"], texts, vectors, sources, bm25))
-        ok = check(case, got)
+        hits = retrieve(case["question"], texts, vectors, sources, bm25)
+        titles = " | ".join(s["title"] for _, s in hits)
+        got = answer(case["question"], hits)
+
+        retrieval_ok = case.get("expect_source", "").lower() in titles.lower()
+        answer_ok = check(case, got)
+        ok = retrieval_ok and answer_ok
         passed += ok
+
         print(f"{'PASS' if ok else 'FAIL'}  {case['question']}")
-        if not ok:
-            print(f"      got: {got[:200]}")
+        print(f"      got: {got[:120].replace(chr(10), ' ')}")
+        if not retrieval_ok:
+            print(f"      retrieval missed '{case['expect_source']}'; got: {titles[:120]}")
     print(f"\n{passed}/{len(cases)} passed")
     return 0 if passed == len(cases) else 1
 
