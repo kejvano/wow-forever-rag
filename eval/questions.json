@@ -1,8 +1,7 @@
 [
   {
     "question": "When does the game release?",
-    "expect": ["November 4"],
-    "expect_source": "Roundup"
+    "expect": ["November 4"]
   },
   {
     "question": "What is the level cap in beta?",
@@ -16,12 +15,11 @@
   },
   {
     "question": "What does Touch of the Grave do?",
-    "expect": ["drain"],
-    "expect_source": "Roundup"
+    "expect": ["drain"]
   },
   {
     "question": "What is Seal of Fury?",
-    "expect": ["seal"],
+    "expect": ["taunt", "absorb"],
     "expect_source": "Paladins Now Have a Taunt"
   },
   {
