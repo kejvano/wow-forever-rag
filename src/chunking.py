@@ -1,5 +1,5 @@
-CHUNK_WORDS = 300
-OVERLAP_WORDS = 50
+CHUNK_WORDS = 150
+OVERLAP_WORDS = 30
 
 
 def chunk_text(text: str, title: str = "") -> list[str]:
