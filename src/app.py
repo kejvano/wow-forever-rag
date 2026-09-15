@@ -18,6 +18,13 @@ def ask_endpoint(q: Question):
     return {"answer": reply, "sources": cited}
 
 
+@app.post("/reload")
+def reload_index():
+    global search
+    search = build_search()
+    return {"chunks": len(search[0])}
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return PAGE
