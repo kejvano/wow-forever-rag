@@ -9,6 +9,11 @@
     "expect_source": "Destin Interview"
   },
   {
+    "question": "what is the level cap in beta",
+    "expect": ["20", "30"],
+    "expect_source": "Destin Interview"
+  },
+  {
     "question": "What new class and race combinations are there?",
     "expect": ["Undead Paladin", "Orc Mage", "Gnome Priest"],
     "expect_source": "Deep Dive"
@@ -26,6 +31,10 @@
     "question": "What is the shipping cost for the Collector's Edition?",
     "expect": ["45"],
     "expect_source": "Roundup"
+  },
+  {
+    "question": "Will I be able to create characters of different factions on the same account?",
+    "expect_refusal": true
   },
   {
     "question": "What should I eat for dinner?",
