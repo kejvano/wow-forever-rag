@@ -7,10 +7,14 @@ from ask import answer, retrieve, build_search, REFUSAL
 QUESTIONS_PATH = "eval/questions.json"
 
 
-def check(expected: dict, got: str) -> bool:
+def check(expected: dict, got: dict) -> bool:
+    answer_text = got["answer"]
     if expected.get("expect_refusal"):
-        return got.strip() == REFUSAL
-    return all(s.lower() in got.lower() for s in expected["expect"])
+        answer_ok = answer_text.strip() == REFUSAL
+    else:
+        answer_ok = all(str(s).lower() in answer_text.lower() for s in expected["expect"])
+    background_ok = expected.get("expect_background", "").lower() in got["background"].lower()
+    return answer_ok and background_ok
 
 
 def run() -> int:
@@ -23,15 +27,20 @@ def run() -> int:
         titles = " | ".join(s["title"] for _, s in hits)
         got = answer(case["question"], hits)
 
-        retrieval_ok = case.get("expect_source", "").lower() in titles.lower()
+        expected_sources = case.get("expect_source", "")
+        if isinstance(expected_sources, str):
+            expected_sources = [expected_sources] if expected_sources else []
+        retrieval_ok = not expected_sources or any(e.lower() in titles.lower() for e in expected_sources)
         answer_ok = check(case, got)
         ok = retrieval_ok and answer_ok
         passed += ok
 
         print(f"{'PASS' if ok else 'FAIL'}  {case['question']}")
-        print(f"      got: {got[:120].replace(chr(10), ' ')}")
+        print(f"      got: {got['answer'][:120].replace(chr(10), ' ')}")
+        if got["background"]:
+            print(f"      background: {got['background'][:120]}")
         if not retrieval_ok:
-            print(f"      retrieval missed '{case['expect_source']}'; got: {titles[:120]}")
+            print(f"      retrieval missed {expected_sources}; got: {titles[:120]}")
     print(f"\n{passed}/{len(cases)} passed")
     return 0 if passed == len(cases) else 1
 

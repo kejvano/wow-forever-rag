@@ -6,17 +6,17 @@
   {
     "question": "What is the level cap in beta?",
     "expect": ["20", "30"],
-    "expect_source": "Destin Interview"
+    "expect_source": ["Destin Interview"]
   },
   {
     "question": "what is the level cap in beta",
     "expect": ["20", "30"],
-    "expect_source": "Destin Interview"
+    "expect_source": ["Destin Interview"]
   },
   {
     "question": "What new class and race combinations are there?",
     "expect": ["Undead Paladin", "Orc Mage", "Gnome Priest"],
-    "expect_source": "Deep Dive"
+    "expect_source": ["Deep Dive"]
   },
   {
     "question": "What does Touch of the Grave do?",
@@ -25,16 +25,31 @@
   {
     "question": "What is Seal of Fury?",
     "expect": ["taunt", "absorb"],
-    "expect_source": "Paladins Now Have a Taunt"
+    "expect_source": ["Paladins Now Have a Taunt"]
   },
   {
     "question": "What is the shipping cost for the Collector's Edition?",
     "expect": ["45"],
-    "expect_source": "Roundup"
+    "expect_source": ["Roundup"]
+  },
+  {
+    "question": "What is the max level when the game is released?",
+    "expect": ["60"],
+    "expect_source": ["Carve a New Path", "Destin Interview", "Legacy System Explained"]
   },
   {
     "question": "Will I be able to create characters of different factions on the same account?",
+    "expect_refusal": true,
+    "expect_background": "Classic"
+  },
+  {
+    "question": "Will I be able to create characters of different factions on the same account on the same PvP realm?",
     "expect_refusal": true
+  },
+  {
+    "question": "What is the max level in the released version?",
+    "expect": ["60"],
+    "expect_source": ["Carve a New Path", "Destin Interview", "Legacy System Explained"]
   },
   {
     "question": "What should I eat for dinner?",
