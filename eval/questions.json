@@ -39,12 +39,13 @@
   },
   {
     "question": "Will I be able to create characters of different factions on the same account?",
-    "expect_refusal": true,
-    "expect_background": "Classic"
+    "expect": ["both factions", "PvP"],
+    "expect_source": ["Choosing Your Ruleset", "Game Informer"]
   },
   {
     "question": "Will I be able to create characters of different factions on the same account on the same PvP realm?",
-    "expect_refusal": true
+    "expect": [["one faction", "Horde"]],
+    "expect_source": ["Choosing Your Ruleset", "Game Informer"]
   },
   {
     "question": "What is the max level in the released version?",

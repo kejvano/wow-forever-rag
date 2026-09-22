@@ -20,6 +20,8 @@ TOP_K = 10
 MIN_SCORE = 0.2
 CANDIDATES = 30
 RRF_K = 60
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+MIN_QUOTE_WORDS = 6
 REFUSAL = "I don't have information about that."
 
 
@@ -172,18 +174,26 @@ def ngrams(words: list[str], n: int = 3) -> set[tuple]:
     return {tuple(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
+def quote_supported(quote: str, corpus: str, corpus_grams: set, min_overlap: float) -> bool:
+    q = normalize(quote)
+    words = q.split()
+    if len(words) < MIN_QUOTE_WORDS:
+        return False
+    if q in corpus:
+        return True
+    grams = ngrams(words)
+    return bool(grams) and len(grams & corpus_grams) / len(grams) >= min_overlap
+
+
 def evidence_supported(evidence: list, hits, min_overlap: float = 0.95) -> bool:
     if not evidence:
         return False
     corpus = normalize(" ".join(text for text, _ in hits))
     corpus_grams = ngrams(corpus.split())
     for quote in evidence:
-        q = normalize(quote)
-        if q in corpus:
-            return True
-        grams = ngrams(q.split())
-        if grams and len(grams & corpus_grams) / len(grams) >= min_overlap:
-            return True
+        for sentence in SENTENCE_SPLIT.split(quote):
+            if quote_supported(sentence, corpus, corpus_grams, min_overlap):
+                return True
     return False
 
 

@@ -7,12 +7,17 @@ from ask import answer, retrieve, build_search, REFUSAL
 QUESTIONS_PATH = "eval/questions.json"
 
 
+def fragment_found(fragment, text: str) -> bool:
+    options = fragment if isinstance(fragment, list) else [fragment]
+    return any(str(o).lower() in text.lower() for o in options)
+
+
 def check(expected: dict, got: dict) -> bool:
     answer_text = got["answer"]
     if expected.get("expect_refusal"):
         answer_ok = answer_text.strip() == REFUSAL
     else:
-        answer_ok = all(str(s).lower() in answer_text.lower() for s in expected["expect"])
+        answer_ok = all(fragment_found(f, answer_text) for f in expected["expect"])
     background_ok = expected.get("expect_background", "").lower() in got["background"].lower()
     return answer_ok and background_ok
 
