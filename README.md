@@ -2,7 +2,7 @@
 
 A question-answering bot for *World of Warcraft: Forever* that keeps itself up to date.
 
-It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected — with sources. If the answer isn't in the collected articles, it says so instead of guessing.
+It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected with sources. If the answer isn't in the collected articles, it says so instead of guessing.
 
 ![Screenshot](docs/screenshot.png)
 
@@ -27,8 +27,9 @@ This project is a retrieval-augmented generation (RAG) pipeline: instead of trai
 
 ```
 Wowhead RSS feed ─┐
-                  ├─► fetch.py ──► data/raw/*.txt + *.json   (raw articles, source of truth)
-Seed URLs ────────┘                        │
+Seed URLs ────────┴─► fetch.py ──► data/raw/forever-news/       (Forever news)
+Classic seed URLs ──► fetch.py ──► data/raw/classic-reference/  (Classic reference)
+                                           │
                                            ▼
                                       index.py ──► data/index.sqlite   (150-word chunks + embeddings)
                                                            │
@@ -36,7 +37,7 @@ Seed URLs ────────┘                        │
                          ask.py: query expansion + hybrid retrieval (BM25 + vector) ──► GPT-4o-mini ──► answer
 ```
 
-**Fetch.** Articles are discovered through RSS feeds and a list of seed URLs for sources without feeds (Blizzard's own news site has none). Article text is extracted with `trafilatura`, preferring full-text feed content over page scraping. Each article is saved once, keyed by a hash of its URL, so the fetcher is safe to re-run at any time.
+**Fetch.** Articles are discovered through RSS feeds and a list of seed URLs for sources without feeds (Blizzard's own news site has none). Article text is extracted with `trafilatura`, preferring full-text feed content over page scraping. Each article is saved once, keyed by a hash of its URL, so the fetcher is safe to re-run at any time. Articles are stored in one subfolder per collection: `forever-news` for coverage of Forever itself, and `classic-reference` for a small, static set of guides to the original game. The folder decides the collection, and news answers are only ever retrieved from `forever-news`.
 
 **Index.** Articles are split into overlapping 150-word chunks, each prefixed with its article title, and embedded with `text-embedding-3-small`. Chunks and vectors are stored in SQLite. The index is derived from the raw layer and can be rebuilt in a minute; changing the chunking never requires re-scraping.
 
@@ -44,7 +45,7 @@ Seed URLs ────────┘                        │
 
 **Update.** `update.py` runs fetch and index together and is scheduled every 6 hours through the OS task scheduler, and notifies the running web server to reload the index.
 
-**Background.** When the sources don't answer a question, the model may add general knowledge about the original Classic WoW, returned in a separate field and shown to the user as unverified. 
+**Background.** If the news sources can't answer a question, the same rewritten queries are run against the Classic reference collection, and a second model call produces background about how the original game handled it. That background goes through the same evidence check as answers do; if no quote verifies, nothing is shown. It is labeled as describing the original Classic, not as confirmed for Forever.
 
 
 ## Setup
@@ -93,13 +94,15 @@ Open http://127.0.0.1:8000 for a minimal page: type a question, get an answer wi
 | `POST /ask` | `{"question": "..."}` → `{"answer": "...", "evidence": [...], "background": "...", "sources": [...]}` |
 | `POST /reload` | Reloads the index from disk; called by `update.py` after each scheduled run so new articles are served without a restart. |
 
-The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one embedding call per phrasing, and one answer call — roughly doubling latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
+The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one embedding call per phrasing, and one answer call roughly doubling latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
 
 ## Evaluation
 
 `eval/questions.json` holds a set of questions with expected answer fragments and, where known, the article the answer should come from. `python src/evaluate.py` runs them all and reports which cases fail at retrieval and which fail at generation.
 
 This is a regression check, not a benchmark, but it has already earned its keep: with vector-only retrieval and 300-word chunks, the level-cap question failed because the relevant sentence was diluted inside a long chunk about several topics. Smaller chunks fixed it, and adding BM25 made the result stable across chunk sizes.
+
+Refusal cases describe the corpus at a point in time, not permanent truths. Early on, "Will I be able to create characters of different factions on the same account?" had no answer in the sources, and the correct behaviour was to refuse. A week later Blizzard published the ruleset details, the scheduled update picked them up, and the bot began answering correctly which made the old test fail. When a refusal case starts failing after an update, the first thing to check is whether the sources have caught up.
 
 ## Design decisions
 
@@ -108,7 +111,7 @@ This is a regression check, not a benchmark, but it has already earned its keep:
 - **SQLite with in-memory vector search.** A few hundred chunks fit in memory and brute-force cosine similarity runs in microseconds. A vector database would add operational weight for no benefit at this scale; pgvector is the natural next step if the corpus grows by orders of magnitude.
 - **Hybrid retrieval.** Embeddings capture meaning but underweight exact terms; the game's vocabulary (ability names, item names, zone names) is exactly what keyword search is good at.
 - **Multi-query retrieval.** A question's wording often shares nothing with the source that answers it. Blizzard's announcement says players will "adventure to level 60"; a user asks for the "max level", and neither keyword nor vector search connected them. Rewriting the question into several phrasings before retrieval fixed that class of miss.
-- **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes" — fluent, source-flavoured, and unsupported. With the check in place it refuses, because no source sentence says it.
+- **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes", fluent, source-flavoured, and unsupported. With the check in place it refuses, because no source sentence says it. Quotes are verified sentence by sentence, because the model often merges adjacent sentences into one quote and alters a word in the join; each sentence must be at least six words long, so a trivial fragment can't count as evidence.
 - **Refusal over guessing.** If nothing relevant is retrieved, the model isn't called at all. If sources are retrieved but don't contain the answer, the model is instructed to say so.
 
 ## Limitations
@@ -118,12 +121,12 @@ This is a regression check, not a benchmark, but it has already earned its keep:
 - No alerting. If a feed breaks or the API key expires, the only sign is the log.
 - The evaluation set is small. It catches regressions on known cases; it doesn't measure overall answer quality.
 - Overlapping chunks from the same article can both be retrieved, occasionally biasing the answer toward whichever phrasing appears twice.
-- The background field is unverified model recall, not retrieval. In testing it stated that Classic allowed characters of both factions on one account, which is only true outside PvP realms — the caveat that mattered for the question being asked. It is labeled as unverified in the interface; grounding it in an indexed Classic reference corpus is the planned fix.
+- Background is verified against Classic sources, but whether a Classic rule carries over to Forever is unknown, and the interface says so. An earlier version generated background from model memory. In testing it claimed Classic allowed both factions on one account, true only outside PvP realms. That failure is why background is now retrieved rather than recalled.
 - The evidence check verifies that at least one supporting sentence appears verbatim in the retrieved text; it does not verify every claim in the answer.
+- The Warcraft Tavern compendium in the Classic reference set was written shortly before Classic launched in 2019, so a few of its statements are predictions rather than facts.
 
 ## Possible next steps
 
-- Index a Classic WoW reference corpus as a second collection so background answers are retrieved and evidence-checked like everything else.
 - Merge adjacent chunks from the same article before sending them to the model.
 - Local model support via Ollama for fully offline operation.
 - Store the embedding model name with the index and refuse to mix models.

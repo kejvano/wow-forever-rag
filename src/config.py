@@ -1,3 +1,6 @@
+NEWS = "forever-news"
+CLASSIC = "classic-reference"
+
 FEEDS = [
     "https://www.wowhead.com/news/rss/all",
 ]
@@ -10,6 +13,12 @@ SEED_URLS = [
     "https://news.blizzard.com/en-us/article/24303862/world-of-warcraft-forever-whats-next-panel-recap",
     "https://news.blizzard.com/en-us/article/24303312/submit-your-questions-for-the-world-of-warcraft-live-q-a-september-17",
     "https://news.blizzard.com/en-us/article/24304071/world-of-warcraft-forever-found-photos-panel-recap",
+]
+
+CLASSIC_SEED_URLS = [
+    "https://www.warcrafttavern.com/wow-classic/guides/compendium/",
+    "https://news.blizzard.com/en-us/article/23090134/wow-classic-primer-for-new-players",
+    "https://warcraft.wiki.gg/wiki/World_of_Warcraft:_Classic",
 ]
 
 KEYWORDS = ["warcraft forever", "wow forever", "classic+", "classic plus"]

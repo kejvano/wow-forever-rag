@@ -8,6 +8,7 @@ DB_PATH = "data/index.sqlite"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles (
     id          TEXT PRIMARY KEY,
+    collection  TEXT NOT NULL,
     url         TEXT NOT NULL,
     title       TEXT,
     published   TEXT,
@@ -37,8 +38,8 @@ def article_indexed(conn: sqlite3.Connection, article_id: str) -> bool:
 
 def insert_article(conn: sqlite3.Connection, meta: dict, chunks: list[str], vectors: np.ndarray) -> None:
     conn.execute(
-        "INSERT INTO articles (id, url, title, published, fetched_at) VALUES (?, ?, ?, ?, ?)",
-        (meta["id"], meta["url"], meta["title"], meta["published"], meta["fetched_at"]),
+        "INSERT INTO articles (id, collection, url, title, published, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (meta["id"], meta["collection"], meta["url"], meta["title"], meta["published"], meta["fetched_at"]),
     )
     conn.executemany(
         "INSERT INTO chunks (article_id, position, text, embedding) VALUES (?, ?, ?, ?)",
@@ -50,14 +51,17 @@ def insert_article(conn: sqlite3.Connection, meta: dict, chunks: list[str], vect
     conn.commit()
 
 
-def load_all_chunks(conn: sqlite3.Connection):
-    rows = conn.execute(
-        """
-        SELECT c.text, c.embedding, a.title, a.url, a.published
+def load_all_chunks(conn: sqlite3.Connection, collection: str | None = None):
+    query = """
+        SELECT c.text, c.embedding, a.title, a.url, a.published, a.collection
         FROM chunks c JOIN articles a ON a.id = c.article_id
-        """
-    ).fetchall()
+    """
+    params: tuple = ()
+    if collection:
+        query += " WHERE a.collection = ?"
+        params = (collection,)
+    rows = conn.execute(query, params).fetchall()
     texts = [r[0] for r in rows]
     vectors = np.array([np.frombuffer(r[1], dtype=np.float32) for r in rows])
-    sources = [{"title": r[2], "url": r[3], "published": r[4]} for r in rows]
+    sources = [{"title": r[2], "url": r[3], "published": r[4], "collection": r[5]} for r in rows]
     return texts, vectors, sources

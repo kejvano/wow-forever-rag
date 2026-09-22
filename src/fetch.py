@@ -11,7 +11,7 @@ import requests
 import trafilatura
 import re
 
-from config import FEEDS, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELAY_SECONDS
+from config import FEEDS, SEED_URLS, CLASSIC_SEED_URLS, NEWS, CLASSIC, KEYWORDS, RAW_DIR, USER_AGENT, REQUEST_DELAY_SECONDS
 
 
 def is_relevant(entry) -> bool:
@@ -26,8 +26,12 @@ def article_id(url: str) -> str:
     return hashlib.sha1(url.encode()).hexdigest()[:16]
 
 
-def already_fetched(url: str) -> bool:
-    return (Path(RAW_DIR) / f"{article_id(url)}.txt").exists()
+def article_dir(collection: str) -> Path:
+    return Path(RAW_DIR) / collection
+
+
+def already_fetched(url: str, collection: str) -> bool:
+    return (article_dir(collection) / f"{article_id(url)}.txt").exists()
 
 
 def extract_from_feed(entry) -> str | None:
@@ -62,8 +66,8 @@ def fetch_article(url: str) -> tuple[str | None, str, str | None]:
     return doc.text, title or "", published
 
 
-def save(url: str, title: str, published: str | None, text: str) -> None:
-    out = Path(RAW_DIR)
+def save(url: str, title: str, published: str | None, text: str, collection: str) -> None:
+    out = article_dir(collection)
     out.mkdir(parents=True, exist_ok=True)
     aid = article_id(url)
     (out / f"{aid}.txt").write_text(text, encoding="utf-8")
@@ -85,6 +89,22 @@ def strip_trailing_nav(text: str) -> str:
     return text[: match.start()].rstrip() if match else text
 
 
+def fetch_seeds(urls: list[str], collection: str) -> int:
+    new_count = 0
+    for url in urls:
+        if already_fetched(url, collection):
+            continue
+        text, title, published = fetch_article(url)
+        if not text:
+            print(f"  no text extracted: {url}")
+            continue
+        save(url, title, published, text, collection)
+        new_count += 1
+        print(f"  saved [{collection}]: {title or url}")
+        time.sleep(REQUEST_DELAY_SECONDS)
+    return new_count
+
+
 def run() -> None:
     new_count = 0
 
@@ -96,28 +116,19 @@ def run() -> None:
         print(f"{feed_url}: {len(feed.entries)} entries")
         for entry in feed.entries:
             url = entry.get("link")
-            if not url or not is_relevant(entry) or already_fetched(url):
+            if not url or not is_relevant(entry) or already_fetched(url, NEWS):
                 continue
             text = extract_from_feed(entry)
             if not text:
                 text, _, _ = fetch_article(url)
             text = strip_trailing_nav(text) if text else None
-            save(url, entry.get("title", ""), entry.get("published"), text)
+            save(url, entry.get("title", ""), entry.get("published"), text, NEWS)
             new_count += 1
             print(f"  saved: {entry.get('title')}")
             time.sleep(REQUEST_DELAY_SECONDS)
 
-    for url in SEED_URLS:
-        if already_fetched(url):
-            continue
-        text, title, published = fetch_article(url)
-        if not text:
-            print(f"  no text extracted: {url}")
-            continue
-        save(url, title, published, text)
-        new_count += 1
-        print(f"  saved seed: {url}")
-        time.sleep(REQUEST_DELAY_SECONDS)
+    new_count += fetch_seeds(SEED_URLS, NEWS)
+    new_count += fetch_seeds(CLASSIC_SEED_URLS, CLASSIC)
 
     print(f"done, {new_count} new articles")
 
