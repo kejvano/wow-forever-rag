@@ -54,7 +54,7 @@ the answer is the refusal, this is an empty list.
 "background": this key is NOT subject to the source-only rules above; it is
 explicitly labeled to the user as general knowledge rather than reporting.
 Fill it whenever the answer is the refusal or is incomplete, and the original
-Classic World of Warcraft (2004) has a well-known relevant answer — for
+Classic World of Warcraft (2019) has a well-known relevant answer — for
 example, that Classic's level cap was 60, or how Classic handled factions on
 an account. Write it as what Classic did, never as fact about Forever, and
 never contradict the sources. One or two sentences. Empty only when Classic

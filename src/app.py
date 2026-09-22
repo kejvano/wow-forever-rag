@@ -44,7 +44,6 @@ PAGE = """<!doctype html>
   body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3rem auto; padding: 0 1rem; }
   input { width: 100%; font-size: 1.1rem; padding: .6rem; box-sizing: border-box; }
   #answer { margin-top: 1.5rem; white-space: pre-wrap; }
-  <div id="evidence"></div>
   #background { margin-top: 1rem; font-style: italic; color: #8a6d3b;
               border-left: 3px solid #d0b070; padding-left: .75rem; }
   #sources { margin-top: 1rem; font-size: .9rem; color: #555; }
@@ -58,6 +57,7 @@ PAGE = """<!doctype html>
 <p>Answers come only from collected news articles. Press Enter to ask.</p>
 <input id="q" placeholder="What is the level cap in beta?" autofocus>
 <div id="answer"></div>
+<div id="evidence"></div>
 <div id="background"></div>
 <ul id="sources"></ul>
 <script>
