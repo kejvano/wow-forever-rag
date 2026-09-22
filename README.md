@@ -2,7 +2,7 @@
 
 A question-answering bot for *World of Warcraft: Forever* that keeps itself up to date.
 
-It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected — with sources. If the answer isn't in the collected articles, it says so instead of guessing.
+It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected with sources. If the answer isn't in the collected articles, it says so instead of guessing.
 
 ![Screenshot](docs/screenshot.png)
 
@@ -94,7 +94,7 @@ Open http://127.0.0.1:8000 for a minimal page: type a question, get an answer wi
 | `POST /ask` | `{"question": "..."}` → `{"answer": "...", "evidence": [...], "background": "...", "sources": [...]}` |
 | `POST /reload` | Reloads the index from disk; called by `update.py` after each scheduled run so new articles are served without a restart. |
 
-The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one embedding call per phrasing, and one answer call — roughly doubling latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
+The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one embedding call per phrasing, and one answer call roughly doubling latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
 
 ## Evaluation
 
@@ -102,7 +102,7 @@ The index is loaded once at startup and held in memory, so nothing is read from 
 
 This is a regression check, not a benchmark, but it has already earned its keep: with vector-only retrieval and 300-word chunks, the level-cap question failed because the relevant sentence was diluted inside a long chunk about several topics. Smaller chunks fixed it, and adding BM25 made the result stable across chunk sizes.
 
-Refusal cases describe the corpus at a point in time, not permanent truths. Early on, "Will I be able to create characters of different factions on the same account?" had no answer in the sources, and the correct behaviour was to refuse. A week later Blizzard published the ruleset details, the scheduled update picked them up, and the bot began answering correctly — which made the old test fail. When a refusal case starts failing after an update, the first thing to check is whether the sources have caught up.
+Refusal cases describe the corpus at a point in time, not permanent truths. Early on, "Will I be able to create characters of different factions on the same account?" had no answer in the sources, and the correct behaviour was to refuse. A week later Blizzard published the ruleset details, the scheduled update picked them up, and the bot began answering correctly which made the old test fail. When a refusal case starts failing after an update, the first thing to check is whether the sources have caught up.
 
 ## Design decisions
 
@@ -111,7 +111,7 @@ Refusal cases describe the corpus at a point in time, not permanent truths. Earl
 - **SQLite with in-memory vector search.** A few hundred chunks fit in memory and brute-force cosine similarity runs in microseconds. A vector database would add operational weight for no benefit at this scale; pgvector is the natural next step if the corpus grows by orders of magnitude.
 - **Hybrid retrieval.** Embeddings capture meaning but underweight exact terms; the game's vocabulary (ability names, item names, zone names) is exactly what keyword search is good at.
 - **Multi-query retrieval.** A question's wording often shares nothing with the source that answers it. Blizzard's announcement says players will "adventure to level 60"; a user asks for the "max level", and neither keyword nor vector search connected them. Rewriting the question into several phrasings before retrieval fixed that class of miss.
-- **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes" — fluent, source-flavoured, and unsupported. With the check in place it refuses, because no source sentence says it. Quotes are verified sentence by sentence, because the model often merges adjacent sentences into one quote and alters a word in the join; each sentence must be at least six words long, so a trivial fragment can't count as evidence.
+- **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes", fluent, source-flavoured, and unsupported. With the check in place it refuses, because no source sentence says it. Quotes are verified sentence by sentence, because the model often merges adjacent sentences into one quote and alters a word in the join; each sentence must be at least six words long, so a trivial fragment can't count as evidence.
 - **Refusal over guessing.** If nothing relevant is retrieved, the model isn't called at all. If sources are retrieved but don't contain the answer, the model is instructed to say so.
 
 ## Limitations
@@ -121,7 +121,7 @@ Refusal cases describe the corpus at a point in time, not permanent truths. Earl
 - No alerting. If a feed breaks or the API key expires, the only sign is the log.
 - The evaluation set is small. It catches regressions on known cases; it doesn't measure overall answer quality.
 - Overlapping chunks from the same article can both be retrieved, occasionally biasing the answer toward whichever phrasing appears twice.
-- The background field is unverified model recall, not retrieval. In testing it stated that Classic allowed characters of both factions on one account, which is only true outside PvP realms — the caveat that mattered for the question being asked. It is labeled as unverified in the interface; grounding it in an indexed Classic reference corpus is the planned fix.
+- The background field is unverified model recall, not retrieval. In testing it stated that Classic allowed characters of both factions on one account, which is only true outside PvP realms, the caveat that mattered for the question being asked. It is labeled as unverified in the interface; grounding it in an indexed Classic reference corpus is the planned fix.
 - The evidence check verifies that at least one supporting sentence appears verbatim in the retrieved text; it does not verify every claim in the answer.
 - The Warcraft Tavern compendium in the Classic reference set was written shortly before Classic launched in 2019, so a few of its statements are predictions rather than facts.
 
