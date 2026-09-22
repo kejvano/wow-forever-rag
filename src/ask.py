@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
 
+from config import NEWS
 from db import connect, load_all_chunks
 from index import embed
 
@@ -188,7 +189,9 @@ def evidence_supported(evidence: list, hits, min_overlap: float = 0.95) -> bool:
 
 def build_search():
     conn = connect()
-    texts, vectors, sources = load_all_chunks(conn)
+    texts, vectors, sources = load_all_chunks(conn, NEWS)
+    if not texts:
+        raise RuntimeError(f"No chunks in collection '{NEWS}'. Run fetch.py and index.py first.")
     bm25 = BM25Okapi([tokenize(t) for t in texts])
     return texts, vectors, sources, bm25
 
