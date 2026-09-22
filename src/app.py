@@ -2,10 +2,11 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from ask import build_search, ask
+from ask import build_searches, ask
+from config import NEWS
 
 app = FastAPI(title="WoW Forever Q&A")
-search = build_search()
+searches = build_searches()
 
 
 class Question(BaseModel):
@@ -14,20 +15,15 @@ class Question(BaseModel):
 
 @app.post("/ask")
 def ask_endpoint(q: Question):
-    reply, cited = ask(q.question, search)
-    return {
-      "answer": reply["answer"],
-      "background": reply["background"],
-      "evidence": reply["evidence"],
-      "sources": cited,
-    }
+    reply, cited = ask(q.question, searches)
+    return {**reply, "sources": cited}
 
 
 @app.post("/reload")
 def reload_index():
-    global search
-    search = build_search()
-    return {"chunks": len(search[0])}
+    global searches
+    searches = build_searches()
+    return {"chunks": len(searches[NEWS][0])}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -54,7 +50,7 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <h1>WoW: Forever Q&amp;A</h1>
-<p>Answers come only from collected news articles. Press Enter to ask.</p>
+<p>Answers come only from collected news articles. When the news is silent, background about the original Classic may be shown, taken from Classic guides. Press Enter to ask.</p>
 <input id="q" placeholder="What is the level cap in beta?" autofocus>
 <div id="answer"></div>
 <div id="evidence"></div>
@@ -66,7 +62,7 @@ q.addEventListener("keydown", async (e) => {
   if (e.key !== "Enter" || !q.value.trim()) return;
   document.getElementById("answer").textContent = "Thinking…";
   document.getElementById("evidence").innerHTML = "";
-  document.getElementById("background").textContent = "";
+  document.getElementById("background").innerHTML = "";
   document.getElementById("sources").innerHTML = "";
   const res = await fetch("/ask", {
     method: "POST",
@@ -81,8 +77,19 @@ q.addEventListener("keydown", async (e) => {
     p.textContent = "“" + quote + "”";
     ev.appendChild(p);
   }
-  document.getElementById("background").textContent =
-    data.background ? "Unverified — general Classic knowledge, may be wrong: " + data.background : "";
+  const bg = document.getElementById("background");
+  if (data.background) {
+    const p = document.createElement("p");
+    p.textContent = "About the original Classic, not confirmed for Forever: " + data.background;
+    bg.appendChild(p);
+    for (const s of data.background_sources) {
+      const a = document.createElement("a");
+      a.href = s.url; a.textContent = s.title || s.url; a.target = "_blank";
+      const div = document.createElement("div");
+      div.appendChild(a);
+      bg.appendChild(div);
+    }
+  }
   for (const s of data.sources) {
     const li = document.createElement("li");
     const a = document.createElement("a");

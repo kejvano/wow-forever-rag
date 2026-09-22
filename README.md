@@ -45,7 +45,7 @@ Classic seed URLs ──► fetch.py ──► data/raw/classic-reference/  (Cla
 
 **Update.** `update.py` runs fetch and index together and is scheduled every 6 hours through the OS task scheduler, and notifies the running web server to reload the index.
 
-**Background.** When the sources don't answer a question, the model may add general knowledge about the original Classic WoW, returned in a separate field and shown to the user as unverified. 
+**Background.** If the news sources can't answer a question, the same rewritten queries are run against the Classic reference collection, and a second model call produces background about how the original game handled it. That background goes through the same evidence check as answers do; if no quote verifies, nothing is shown. It is labeled as describing the original Classic, not as confirmed for Forever.
 
 
 ## Setup
@@ -121,13 +121,12 @@ Refusal cases describe the corpus at a point in time, not permanent truths. Earl
 - No alerting. If a feed breaks or the API key expires, the only sign is the log.
 - The evaluation set is small. It catches regressions on known cases; it doesn't measure overall answer quality.
 - Overlapping chunks from the same article can both be retrieved, occasionally biasing the answer toward whichever phrasing appears twice.
-- The background field is unverified model recall, not retrieval. In testing it stated that Classic allowed characters of both factions on one account, which is only true outside PvP realms, the caveat that mattered for the question being asked. It is labeled as unverified in the interface; grounding it in an indexed Classic reference corpus is the planned fix.
+- Background is verified against Classic sources, but whether a Classic rule carries over to Forever is unknown, and the interface says so. An earlier version generated background from model memory. In testing it claimed Classic allowed both factions on one account, true only outside PvP realms. That failure is why background is now retrieved rather than recalled.
 - The evidence check verifies that at least one supporting sentence appears verbatim in the retrieved text; it does not verify every claim in the answer.
 - The Warcraft Tavern compendium in the Classic reference set was written shortly before Classic launched in 2019, so a few of its statements are predictions rather than facts.
 
 ## Possible next steps
 
-- Index a Classic WoW reference corpus as a second collection so background answers are retrieved and evidence-checked like everything else.
 - Merge adjacent chunks from the same article before sending them to the model.
 - Local model support via Ollama for fully offline operation.
 - Store the embedding model name with the index and refuse to mix models.

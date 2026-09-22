@@ -48,12 +48,28 @@
     "expect_source": ["Choosing Your Ruleset", "Game Informer"]
   },
   {
+    "question": "Could players have characters of both factions on the same PvP realm in the original game?",
+    "expect_refusal": true,
+    "expect_background": [["one faction", "Horde"]]
+  },
+  {
+    "question": "How much does it cost to reset talents?",
+    "expect_refusal": true,
+    "expect_background": "50 gold"
+  },
+  {
+    "question": "How many characters can I have per realm?",
+    "expect_refusal": true,
+    "expect_background": "10 characters"
+  },
+  {
     "question": "What is the max level in the released version?",
     "expect": ["60"],
     "expect_source": ["Carve a New Path", "Destin Interview", "Legacy System Explained"]
   },
   {
     "question": "What should I eat for dinner?",
-    "expect_refusal": true
+    "expect_refusal": true,
+    "expect_no_background": true
   }
 ]
