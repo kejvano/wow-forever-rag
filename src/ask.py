@@ -21,6 +21,7 @@ MIN_SCORE = 0.2
 CANDIDATES = 30
 RRF_K = 60
 MIN_QUOTE_WORDS = 6
+MAX_PER_ARTICLE = 3
 REFUSAL = "I don't have information about that."
 
 
@@ -181,7 +182,16 @@ def retrieve(queries: list[str], search, debug: bool = False):
             for rank, i in enumerate(ranked):
                 fused[i] = fused.get(i, 0.0) + 1.0 / (RRF_K + rank)
 
-    top = sorted(fused, key=lambda i: fused[i], reverse=True)[:TOP_K]
+    ranked = sorted(fused, key=lambda i: fused[i], reverse=True)
+    top, per_article = [], {}
+    for i in ranked:
+        url = sources[i]["url"]
+        if per_article.get(url, 0) >= MAX_PER_ARTICLE:
+            continue
+        per_article[url] = per_article.get(url, 0) + 1
+        top.append(i)
+        if len(top) == TOP_K:
+            break
     if debug:
         for i in top:
             print(f"  rrf={fused[i]:.4f} vec={best_vec[i]:.3f} kw={best_kw[i]:.2f}  {sources[i]['title'][:60]}")
