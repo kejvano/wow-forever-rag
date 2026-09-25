@@ -53,7 +53,7 @@
     "expect_background": [["one faction", "Horde"]]
   },
   {
-    "question": "How much does it cost to reset talents?",
+    "question": "How much does it cost to reset talents when the game is released?",
     "expect_refusal": true,
     "expect_background": "50 gold"
   },

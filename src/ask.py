@@ -119,16 +119,22 @@ def quote_supported(quote: str, corpus: str, corpus_grams: set, min_overlap: flo
     return bool(grams) and len(grams & corpus_grams) / len(grams) >= min_overlap
 
 
-def evidence_supported(evidence: list, hits, min_overlap: float = 0.95) -> bool:
-    if not evidence:
-        return False
-    corpus = normalize(" ".join(text for text, _ in hits))
-    corpus_grams = ngrams(corpus.split())
+def verified_sources(evidence: list, hits, min_overlap: float = 0.95) -> list[dict]:
+    chunks = []
+    for text, source in hits:
+        corpus = normalize(text)
+        chunks.append((corpus, ngrams(corpus.split()), source))
+    cited = []
     for quote in evidence:
         for sentence in SENTENCE_SPLIT.split(str(quote)):
-            if quote_supported(sentence, corpus, corpus_grams, min_overlap):
-                return True
-    return False
+            for corpus, grams, source in chunks:
+                if source not in cited and quote_supported(sentence, corpus, grams, min_overlap):
+                    cited.append(source)
+    return cited
+
+
+def evidence_supported(evidence: list, hits, min_overlap: float = 0.95) -> bool:
+    return bool(verified_sources(evidence, hits, min_overlap))
 
 
 def complete_json(system: str, user: str) -> dict:
@@ -206,19 +212,20 @@ def print_evidence(label: str, evidence: list, supported: bool, hits) -> None:
 
 
 def answer(question: str, hits, debug: bool = False) -> dict:
+    refused = {"answer": REFUSAL, "evidence": [], "sources": []}
     if not hits:
-        return {"answer": REFUSAL, "evidence": []}
+        return refused
     data = complete_json(SYSTEM, f"SOURCES:\n{format_sources(hits)}\n\nQUESTION: {question}")
     reply = data.get("answer", REFUSAL)
     evidence = data.get("evidence", [])
     if not isinstance(evidence, list):
         evidence = []
-    supported = evidence_supported(evidence, hits)
+    sources = verified_sources(evidence, hits)
     if debug:
-        print_evidence("answer", evidence, supported, hits)
-    if reply == REFUSAL or not supported:
-        return {"answer": REFUSAL, "evidence": []}
-    return {"answer": reply, "evidence": evidence}
+        print_evidence("answer", evidence, bool(sources), hits)
+    if reply == REFUSAL or not sources:
+        return refused
+    return {"answer": reply, "evidence": evidence, "sources": sources}
 
 
 def background(question: str, hits, debug: bool = False) -> dict:
@@ -230,12 +237,12 @@ def background(question: str, hits, debug: bool = False) -> dict:
     evidence = data.get("evidence", [])
     if not isinstance(text, str) or not isinstance(evidence, list):
         return empty
-    supported = evidence_supported(evidence, hits)
+    sources = verified_sources(evidence, hits)
     if debug:
-        print_evidence("background", evidence, supported, hits)
-    if not text.strip() or not supported:
+        print_evidence("background", evidence, bool(sources), hits)
+    if not text.strip() or not sources:
         return empty
-    return {"background": text, "background_evidence": evidence, "background_sources": unique_sources(hits)}
+    return {"background": text, "background_evidence": evidence, "background_sources": sources}
 
 
 def build_search(collection: str):
@@ -267,6 +274,7 @@ def ask(question: str, searches: dict, debug: bool = False) -> tuple[dict, list[
     else:
         reply.update({"background": "", "background_evidence": [], "background_sources": []})
 
+    # second value is everything retrieved, not just what was cited; the eval uses it
     return reply, unique_sources(news_hits)
 
 
@@ -276,9 +284,9 @@ if __name__ == "__main__":
     question = " ".join(args) or "When does the game release?"
     searches = build_searches()
     print(f"{len(searches[NEWS][0])} news chunks, {len(searches[CLASSIC][0])} classic chunks loaded")
-    reply, cited = ask(question, searches, debug)
+    reply, _ = ask(question, searches, debug)
     print(reply["answer"])
-    for s in cited:
+    for s in reply["sources"]:
         print(f"  - {s['title']} ({s['url']})")
     if reply["background"]:
         print(f"\nAbout the original Classic, not confirmed for Forever:\n{reply['background']}")

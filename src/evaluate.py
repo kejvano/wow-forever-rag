@@ -38,8 +38,8 @@ def run() -> int:
 
     passed = 0
     for case in cases:
-        got, cited = ask(case["question"], searches)
-        titles = " | ".join(s["title"] for s in cited)
+        got, retrieved = ask(case["question"], searches)
+        titles = " | ".join(s["title"] for s in retrieved)
 
         expected_sources = case.get("expect_source", "")
         if isinstance(expected_sources, str):
