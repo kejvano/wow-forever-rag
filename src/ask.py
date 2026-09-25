@@ -93,7 +93,7 @@ SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
 def tokenize(text: str) -> list[str]:
-    return [t for t in re.findall(r"[a-z0-9']+", text.lower()) if t not in STOPWORDS]
+    return [t for t in re.findall(r"[a-z0-9']+", text.translate(PUNCT).lower()) if t not in STOPWORDS]
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
