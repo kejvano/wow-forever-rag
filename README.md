@@ -1,8 +1,10 @@
 # wow-forever-rag
 
+![tests](https://github.com/kejvano/wow-forever-rag/actions/workflows/tests.yml/badge.svg)
+
 A question-answering bot for *World of Warcraft: Forever* that keeps itself up to date.
 
-It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected with sources. If the answer isn't in the collected articles, it says so instead of guessing.
+It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected, and cites its sources. If the answer isn't in the collected articles, it says so instead of guessing.
 
 ![Screenshot](docs/screenshot.png)
 
@@ -15,6 +17,15 @@ to level 30 at a later time. The cap will remain at 30 for the rest of Beta.
 ```
 $ python src/ask.py what should I eat for dinner
 I don't have information about that.
+```
+
+```
+$ python src/ask.py How much does it cost to reset talents when the game is released?
+I don't have information about that.
+
+About the original Classic, not confirmed for Forever:
+In World of Warcraft Classic, players can reset their talent points at any time,
+but the cost for doing so increases with each reset, up to a maximum of 50 gold.
 ```
 
 ## Why
@@ -50,7 +61,7 @@ Classic seed URLs ──► fetch.py ──► data/raw/classic-reference/  (Cla
 
 ## Setup
 
-Requires Python 3.11+ and an OpenAI API key.
+Requires Python 3.10 or newer (developed and tested on 3.14) and an OpenAI API key.
 
 ```bash
 git clone https://github.com/kejvano/wow-forever-rag.git
@@ -91,10 +102,10 @@ Open http://127.0.0.1:8000 for a minimal page: type a question, get an answer wi
 
 | Endpoint | Description |
 |---|---|
-| `POST /ask` | `{"question": "..."}` → `{"answer": "...", "evidence": [...], "background": "...", "sources": [...]}` |
+| `POST /ask` | `{"question": "..."}` → `{"answer", "evidence", "background", "background_evidence", "background_sources", "sources"}` |
 | `POST /reload` | Reloads the index from disk; called by `update.py` after each scheduled run so new articles are served without a restart. |
 
-The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one embedding call per phrasing, and one answer call roughly doubling latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
+The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one batched embedding call and one answer call. When the news can't answer, the Classic lookup adds one more embedding call and one more model call. Query expansion roughly doubles latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
 
 ## Evaluation
 
@@ -102,7 +113,13 @@ The index is loaded once at startup and held in memory, so nothing is read from 
 
 This is a regression check, not a benchmark, but it has already earned its keep: with vector-only retrieval and 300-word chunks, the level-cap question failed because the relevant sentence was diluted inside a long chunk about several topics. Smaller chunks fixed it, and adding BM25 made the result stable across chunk sizes.
 
-Refusal cases describe the corpus at a point in time, not permanent truths. Early on, "Will I be able to create characters of different factions on the same account?" had no answer in the sources, and the correct behaviour was to refuse. A week later Blizzard published the ruleset details, the scheduled update picked them up, and the bot began answering correctly which made the old test fail. When a refusal case starts failing after an update, the first thing to check is whether the sources have caught up.
+Refusal cases describe the corpus at a point in time, not permanent truths. Early on, "Will I be able to create characters of different factions on the same account?" had no answer in the sources, and the correct behavior was to refuse. A week later Blizzard published the ruleset details, the scheduled update picked them up, and the bot began answering correctly, which made the old test fail. When a refusal case starts failing after an update, the first thing to check is whether the sources have caught up.
+
+## Tests
+
+`pytest` runs unit tests for the pure parts of the pipeline: chunking, the evidence check, tokenization, the source-specific cleanup, and the evaluation's matching rules. They need no API key and run in under a second, and GitHub Actions runs them on every push.
+
+They complement the evaluation rather than replace it: the eval measures answer quality end to end but costs API calls and takes minutes, while the unit tests pin down exact behavior cheaply. Several of them are regression tests for real bugs, such as a Blizzard page with invalid structured data and a model quote that merged two sentences. Writing them also found one: curly apostrophes split names like Ula’tek into two tokens, so keyword search missed them.
 
 ## Design decisions
 
@@ -111,8 +128,9 @@ Refusal cases describe the corpus at a point in time, not permanent truths. Earl
 - **SQLite with in-memory vector search.** A few hundred chunks fit in memory and brute-force cosine similarity runs in microseconds. A vector database would add operational weight for no benefit at this scale; pgvector is the natural next step if the corpus grows by orders of magnitude.
 - **Hybrid retrieval.** Embeddings capture meaning but underweight exact terms; the game's vocabulary (ability names, item names, zone names) is exactly what keyword search is good at.
 - **Multi-query retrieval.** A question's wording often shares nothing with the source that answers it. Blizzard's announcement says players will "adventure to level 60"; a user asks for the "max level", and neither keyword nor vector search connected them. Rewriting the question into several phrasings before retrieval fixed that class of miss.
-- **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes", fluent, source-flavoured, and unsupported. With the check in place it refuses, because no source sentence says it. Quotes are verified sentence by sentence, because the model often merges adjacent sentences into one quote and alters a word in the join; each sentence must be at least six words long, so a trivial fragment can't count as evidence.
+- **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes": fluent, source-flavored, and unsupported. With the check in place it refuses, because no source sentence says it. Quotes are verified sentence by sentence, because the model often merges adjacent sentences into one quote and alters a word in the join; each sentence must be at least six words long, so a trivial fragment can't count as evidence.
 - **Refusal over guessing.** If nothing relevant is retrieved, the model isn't called at all. If sources are retrieved but don't contain the answer, the model is instructed to say so.
+- **Two collections, two jobs.** Forever news answers questions; a small Classic reference set only supplies background, and each is retrieved separately. Keeping them apart matters: the Warcraft Wiki says the Classic beta had a level cap of 30, which in a shared pool could easily be retrieved for a question about Forever's beta.
 
 ## Limitations
 
@@ -127,6 +145,8 @@ Refusal cases describe the corpus at a point in time, not permanent truths. Earl
 
 ## Possible next steps
 
+- Cite only the sources that contain verified evidence, rather than every retrieved article.
+- Give the query rewriter the game's context, so expanded queries don't drift to generic RPG wording.
 - Merge adjacent chunks from the same article before sending them to the model.
 - Local model support via Ollama for fully offline operation.
 - Store the embedding model name with the index and refuse to mix models.
