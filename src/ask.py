@@ -41,29 +41,30 @@ new version of the game based on the original 2004 "Classic" World of Warcraft.
 Distinguish beta from the released game. Statements about the beta
 (level caps, known issues, dates) do not describe launch unless the source says so.
 
-Respond with a JSON object with exactly two keys:
+Work in two steps: first copy the sentences that answer the question, then
+write the answer from those sentences only.
 
-"answer": what the provided sources say about the question. Rules:
-- Use ONLY what the sources directly state. Do not infer or extrapolate: a
-  source describing one thing (for example, that factions cannot group
-  together) does not tell you about a related thing (for example, whether both
-  factions can exist on one account).
+Respond with a JSON object with exactly two keys, in this order:
+
+"evidence": a list of one to three sentences copied exactly, word for word,
+from the sources, that directly answer the question. Include every sentence the
+answer needs: if a value changes over time, quote the sentences giving both the
+starting value and the later value. If no source directly answers the question,
+this is an empty list.
+
+"answer": the answer, written from the evidence above. Rules:
+- Every number in your evidence must appear in your answer. If a value changes
+  over time, state the starting value and the later value, not just the final one.
+- Do not infer or extrapolate: a source describing one thing (for example, that
+  factions cannot group together) does not tell you about a related thing (for
+  example, whether both factions can exist on one account).
 - A question about whether something is possible or allowed requires a source
   that directly states it. A source saying two things cannot interact does not
   establish that both can exist.
-- When the sources give a value that changes over time, state the starting
-  value and the later value, not just the final one. Every number that appears
-  in your evidence must appear in your answer.
 - Resolve relative dates using the source's publish date.
 - Include conditions and exceptions.
 - Ignore source content about other games.
-- If no source directly addresses the question, this value must be exactly
-  "{REFUSAL}".
-
-"evidence": a list of one to three sentences copied exactly, word for word,
-from the sources. Together they must support every part of the answer: if the
-answer mentions a starting value and a later value, quote both sentences. If
-the answer is the refusal, this is an empty list.
+- If the evidence list is empty, this value must be exactly "{REFUSAL}".
 
 Output only the JSON object, no markdown fences."""
 
@@ -71,20 +72,23 @@ BACKGROUND_SYSTEM = """A question about World of Warcraft: Forever could not be
 answered from Forever news. You are given sources about the original 2004
 World of Warcraft ("Classic") instead, and provide background from them.
 
-Respond with a JSON object with exactly two keys:
+Work in two steps: first copy the sentences that are relevant to the question,
+then write the background from those sentences only.
 
-"background": what the provided Classic sources say that helps with the
-question, in one or two sentences. Rules:
-- Use ONLY what the sources directly state. Do not infer or extrapolate.
+Respond with a JSON object with exactly two keys, in this order:
+
+"evidence": a list of one to three sentences copied exactly, word for word,
+from the sources, that are relevant to the question. If the sources do not
+address the question, or the question is not about World of Warcraft, this is
+an empty list.
+
+"background": one or two sentences written from the evidence above. Rules:
+- Every number in your evidence must appear in your background.
+- Do not infer or extrapolate.
 - Write it as what Classic did, never as fact about Forever.
 - Include conditions and exceptions, such as rules that differed between
   realm types.
-- If the sources do not address the question, or the question is not about
-  World of Warcraft, this value must be an empty string.
-
-"evidence": a list of one to three sentences copied exactly, word for word,
-from the sources, supporting the background. If the background is empty, this
-is an empty list.
+- If the evidence list is empty, this value must be an empty string.
 
 Output only the JSON object, no markdown fences."""
 
