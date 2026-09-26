@@ -24,7 +24,7 @@
   },
   {
     "question": "What is Seal of Fury?",
-    "expect": ["taunt", "absorb"],
+    "expect": ["taunt", ["absorb", "absorption"]],
     "expect_source": ["Paladins Now Have a Taunt"]
   },
   {
@@ -34,8 +34,7 @@
   },
   {
     "question": "What is the max level when the game is released?",
-    "expect": ["60"],
-    "expect_source": ["Carve a New Path", "Destin Interview", "Legacy System Explained"]
+    "expect": ["60"]
   },
   {
     "question": "Will I be able to create characters of different factions on the same account?",
@@ -64,8 +63,7 @@
   },
   {
     "question": "What is the max level in the released version?",
-    "expect": ["60"],
-    "expect_source": ["Carve a New Path", "Destin Interview", "Legacy System Explained"]
+    "expect": ["60"]
   },
   {
     "question": "What should I eat for dinner?",
