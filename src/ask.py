@@ -2,11 +2,13 @@ import json
 import os
 import re
 import sys
+from typing import NamedTuple
 
 import numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
+from chunking import OVERLAP_WORDS
 
 from config import NEWS, CLASSIC
 from db import connect, load_all_chunks
@@ -23,6 +25,15 @@ RRF_K = 60
 MIN_QUOTE_WORDS = 6
 MAX_PER_ARTICLE = 3
 REFUSAL = "I don't have information about that."
+
+
+class Search(NamedTuple):
+    texts: list[str]
+    vectors: np.ndarray
+    sources: list[dict]
+    bm25: BM25Okapi
+    keys: list[tuple[str, int]]
+    key_index: dict[tuple[str, int], int]
 
 
 SYSTEM = f"""You answer questions about the game World of Warcraft: Forever, a
@@ -166,36 +177,83 @@ def expand_query(question: str) -> list[str]:
     return [question] + [q for q in extra if isinstance(q, str) and q.strip()]
 
 
-def retrieve(queries: list[str], search, debug: bool = False):
-    texts, vectors, sources, bm25 = search
+def merge_chunks(chunk_texts: list[str], title: str) -> str:
+    prefix = f"{title}\n\n" if title else ""
+    words: list[str] = []
+    for n, text in enumerate(chunk_texts):
+        body = text[len(prefix):] if prefix and text.startswith(prefix) else text
+        body_words = body.split()
+        # consecutive chunks share OVERLAP_WORDS words; keep them only once
+        words.extend(body_words if n == 0 else body_words[OVERLAP_WORDS:])
+    return prefix + " ".join(words)
+
+
+def consecutive_runs(numbers: list[int]) -> list[list[int]]:
+    runs: list[list[int]] = []
+    for n in sorted(numbers):
+        if runs and n == runs[-1][-1] + 1:
+            runs[-1].append(n)
+        else:
+            runs.append([n])
+    return runs
+
+
+def expand_neighbors(selected: list[int], search: Search) -> list[tuple[str, dict]]:
+    # small chunks keep retrieval precise; the model reads each one with the chunks around it
+    windows: dict[str, dict[int, int]] = {}
+    for rank, i in enumerate(selected):
+        article_id, position = search.keys[i]
+        ranks = windows.setdefault(article_id, {})
+        for p in (position - 1, position, position + 1):
+            if (article_id, p) in search.key_index:
+                ranks[p] = min(ranks.get(p, rank), rank)
+
+    hits = []
+    for article_id, ranks in windows.items():
+        for run in consecutive_runs(list(ranks)):
+            indices = [search.key_index[(article_id, p)] for p in run]
+            source = search.sources[indices[0]]
+            text = merge_chunks([search.texts[j] for j in indices], source["title"] or "")
+            hits.append((min(ranks[p] for p in run), text, source))
+    hits.sort(key=lambda h: h[0])
+    return [(text, source) for _, text, source in hits]
+
+
+def retrieve(queries: list[str], search: Search, debug: bool = False):
     query_vectors = embed(queries)
 
     fused: dict[int, float] = {}
-    best_vec = np.zeros(len(texts))
-    best_kw = np.zeros(len(texts))
+    best_vec = np.zeros(len(search.texts))
+    best_kw = np.zeros(len(search.texts))
     for q, q_vec in zip(queries, query_vectors):
-        vec_scores = cosine_similarity(q_vec[None, :], vectors)[0]
-        kw_scores = bm25.get_scores(tokenize(q))
+        vec_scores = cosine_similarity(q_vec[None, :], search.vectors)[0]
+        kw_scores = search.bm25.get_scores(tokenize(q))
         best_vec = np.maximum(best_vec, vec_scores)
         best_kw = np.maximum(best_kw, kw_scores)
         for ranked in (np.argsort(vec_scores)[::-1][:CANDIDATES], np.argsort(kw_scores)[::-1][:CANDIDATES]):
             for rank, i in enumerate(ranked):
                 fused[i] = fused.get(i, 0.0) + 1.0 / (RRF_K + rank)
 
-    ranked = sorted(fused, key=lambda i: fused[i], reverse=True)
-    top, per_article = [], {}
-    for i in ranked:
-        url = sources[i]["url"]
+    top: list[int] = []
+    per_article: dict[str, int] = {}
+    for i in sorted(fused, key=lambda i: fused[i], reverse=True):
+        url = search.sources[i]["url"]
         if per_article.get(url, 0) >= MAX_PER_ARTICLE:
             continue
         per_article[url] = per_article.get(url, 0) + 1
         top.append(i)
         if len(top) == TOP_K:
             break
+
+    selected = [i for i in top if best_vec[i] >= MIN_SCORE or best_kw[i] > 0]
     if debug:
-        for i in top:
-            print(f"  rrf={fused[i]:.4f} vec={best_vec[i]:.3f} kw={best_kw[i]:.2f}  {sources[i]['title'][:60]}")
-    return [(texts[i], sources[i]) for i in top if best_vec[i] >= MIN_SCORE or best_kw[i] > 0]
+        for i in selected:
+            _, position = search.keys[i]
+            print(f"  rrf={fused[i]:.4f} vec={best_vec[i]:.3f} kw={best_kw[i]:.2f}  [{position}] {search.sources[i]['title'][:55]}")
+    hits = expand_neighbors(selected, search)
+    if debug:
+        print(f"  {len(selected)} chunks expanded into {len(hits)} passages")
+    return hits
 
 
 def format_sources(hits) -> str:
@@ -255,16 +313,17 @@ def background(question: str, hits, debug: bool = False) -> dict:
     return {"background": text, "background_evidence": evidence, "background_sources": sources}
 
 
-def build_search(collection: str):
+def build_search(collection: str) -> Search:
     conn = connect()
-    texts, vectors, sources = load_all_chunks(conn, collection)
+    texts, vectors, sources, keys = load_all_chunks(conn, collection)
     if not texts:
         raise RuntimeError(f"No chunks in collection '{collection}'. Run fetch.py and index.py first.")
     bm25 = BM25Okapi([tokenize(t) for t in texts])
-    return texts, vectors, sources, bm25
+    key_index = {key: i for i, key in enumerate(keys)}
+    return Search(texts, vectors, sources, bm25, keys, key_index)
 
 
-def build_searches() -> dict:
+def build_searches() -> dict[str, Search]:
     return {NEWS: build_search(NEWS), CLASSIC: build_search(CLASSIC)}
 
 
