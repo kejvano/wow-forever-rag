@@ -53,7 +53,7 @@ def insert_article(conn: sqlite3.Connection, meta: dict, chunks: list[str], vect
 
 def load_all_chunks(conn: sqlite3.Connection, collection: str | None = None):
     query = """
-        SELECT c.text, c.embedding, a.title, a.url, a.published, a.collection
+        SELECT c.text, c.embedding, a.title, a.url, a.published, a.collection, c.article_id, c.position
         FROM chunks c JOIN articles a ON a.id = c.article_id
     """
     params: tuple = ()
@@ -64,4 +64,5 @@ def load_all_chunks(conn: sqlite3.Connection, collection: str | None = None):
     texts = [r[0] for r in rows]
     vectors = np.array([np.frombuffer(r[1], dtype=np.float32) for r in rows])
     sources = [{"title": r[2], "url": r[3], "published": r[4], "collection": r[5]} for r in rows]
-    return texts, vectors, sources
+    keys = [(r[6], r[7]) for r in rows]
+    return texts, vectors, sources, keys

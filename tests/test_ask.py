@@ -1,4 +1,4 @@
-from ask import evidence_supported, tokenize
+from ask import evidence_supported, tokenize, verified_sources
 
 SOURCE = (
     "For the PvP ruleset, faction balance remains an important consideration. "
@@ -66,3 +66,21 @@ def test_quote_must_come_from_the_retrieved_hits():
     assert not evidence_supported(
         ["On the PvP ruleset, players can only create characters for one faction."], other_hits
     )
+
+def test_only_the_article_with_the_quote_is_cited():
+    hits = [
+        (SOURCE, {"title": "Choosing Your Ruleset"}),
+        ("Seal of Fury grants a small absorb shield and lets Judgment taunt.", {"title": "Paladins Now Have a Taunt"}),
+    ]
+    cited = verified_sources(["On the PvP ruleset, players can only create characters for one faction."], hits)
+    assert [s["title"] for s in cited] == ["Choosing Your Ruleset"]
+
+
+def test_same_quote_in_two_articles_cites_both():
+    hits = [(SOURCE, {"title": "Wowhead"}), (SOURCE, {"title": "Blizzard"})]
+    cited = verified_sources(["On the PvP ruleset, players can only create characters for one faction."], hits)
+    assert [s["title"] for s in cited] == ["Wowhead", "Blizzard"]
+
+
+def test_fabricated_evidence_cites_nothing():
+    assert verified_sources(["Players can freely create characters of both factions on every ruleset."], HITS) == []

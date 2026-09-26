@@ -1,3 +1,4 @@
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -32,32 +33,49 @@ def check(expected: dict, got: dict) -> bool:
     return answer_ok and background_ok
 
 
-def run() -> int:
+def run_case(case: dict, searches: dict) -> dict:
+    got, retrieved = ask(case["question"], searches)
+    titles = " | ".join(s["title"] for s in retrieved)
+
+    expected_sources = case.get("expect_source", "")
+    if isinstance(expected_sources, str):
+        expected_sources = [expected_sources] if expected_sources else []
+    retrieval_ok = not expected_sources or any(e.lower() in titles.lower() for e in expected_sources)
+
+    return {
+        "ok": retrieval_ok and check(case, got),
+        "got": got,
+        "titles": titles,
+        "retrieval_ok": retrieval_ok,
+        "expected_sources": expected_sources,
+    }
+
+
+def run(repeat: int = 1) -> int:
     cases = json.loads(Path(QUESTIONS_PATH).read_text(encoding="utf-8"))
     searches = build_searches()
 
-    passed = 0
+    counts = {"PASS": 0, "FLAKY": 0, "FAIL": 0}
     for case in cases:
-        got, cited = ask(case["question"], searches)
-        titles = " | ".join(s["title"] for s in cited)
+        results = [run_case(case, searches) for _ in range(repeat)]
+        passes = sum(r["ok"] for r in results)
+        label = "PASS" if passes == repeat else "FAIL" if passes == 0 else "FLAKY"
+        counts[label] += 1
 
-        expected_sources = case.get("expect_source", "")
-        if isinstance(expected_sources, str):
-            expected_sources = [expected_sources] if expected_sources else []
-        retrieval_ok = not expected_sources or any(e.lower() in titles.lower() for e in expected_sources)
-        answer_ok = check(case, got)
-        ok = retrieval_ok and answer_ok
-        passed += ok
+        # show a failing run when there is one, since that's the one worth reading
+        shown = next((r for r in results if not r["ok"]), results[0])
+        print(f"{label:5} {passes}/{repeat}  {case['question']}")
+        print(f"      got: {shown['got']['answer'][:120].replace(chr(10), ' ')}")
+        if shown["got"]["background"]:
+            print(f"      background: {shown['got']['background'][:120]}")
+        if not shown["retrieval_ok"]:
+            print(f"      retrieval missed {shown['expected_sources']}; got: {shown['titles'][:120]}")
 
-        print(f"{'PASS' if ok else 'FAIL'}  {case['question']}")
-        print(f"      got: {got['answer'][:120].replace(chr(10), ' ')}")
-        if got["background"]:
-            print(f"      background: {got['background'][:120]}")
-        if not retrieval_ok:
-            print(f"      retrieval missed {expected_sources}; got: {titles[:120]}")
-    print(f"\n{passed}/{len(cases)} passed")
-    return 0 if passed == len(cases) else 1
+    print(f"\n{counts['PASS']} pass, {counts['FLAKY']} flaky, {counts['FAIL']} fail, out of {len(cases)} cases ({repeat} runs each)")
+    return 0 if counts["PASS"] == len(cases) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    parser = argparse.ArgumentParser(description="Run the evaluation question set.")
+    parser.add_argument("--repeat", type=int, default=1, help="run each case this many times")
+    sys.exit(run(parser.parse_args().repeat))

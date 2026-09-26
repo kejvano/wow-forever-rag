@@ -15,8 +15,8 @@ class Question(BaseModel):
 
 @app.post("/ask")
 def ask_endpoint(q: Question):
-    reply, cited = ask(q.question, searches)
-    return {**reply, "sources": cited}
+    reply, _ = ask(q.question, searches)
+    return reply
 
 
 @app.post("/reload")

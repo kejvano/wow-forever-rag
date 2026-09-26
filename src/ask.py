@@ -2,11 +2,13 @@ import json
 import os
 import re
 import sys
+from typing import NamedTuple
 
 import numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
+from chunking import OVERLAP_WORDS
 
 from config import NEWS, CLASSIC
 from db import connect, load_all_chunks
@@ -21,7 +23,17 @@ MIN_SCORE = 0.2
 CANDIDATES = 30
 RRF_K = 60
 MIN_QUOTE_WORDS = 6
+MAX_PER_ARTICLE = 3
 REFUSAL = "I don't have information about that."
+
+
+class Search(NamedTuple):
+    texts: list[str]
+    vectors: np.ndarray
+    sources: list[dict]
+    bm25: BM25Okapi
+    keys: list[tuple[str, int]]
+    key_index: dict[tuple[str, int], int]
 
 
 SYSTEM = f"""You answer questions about the game World of Warcraft: Forever, a
@@ -29,29 +41,30 @@ new version of the game based on the original 2004 "Classic" World of Warcraft.
 Distinguish beta from the released game. Statements about the beta
 (level caps, known issues, dates) do not describe launch unless the source says so.
 
-Respond with a JSON object with exactly two keys:
+Work in two steps: first copy the sentences that answer the question, then
+write the answer from those sentences only.
 
-"answer": what the provided sources say about the question. Rules:
-- Use ONLY what the sources directly state. Do not infer or extrapolate: a
-  source describing one thing (for example, that factions cannot group
-  together) does not tell you about a related thing (for example, whether both
-  factions can exist on one account).
+Respond with a JSON object with exactly two keys, in this order:
+
+"evidence": a list of one to three sentences copied exactly, word for word,
+from the sources, that directly answer the question. Include every sentence the
+answer needs: if a value changes over time, quote the sentences giving both the
+starting value and the later value. If no source directly answers the question,
+this is an empty list.
+
+"answer": the answer, written from the evidence above. Rules:
+- Every number in your evidence must appear in your answer. If a value changes
+  over time, state the starting value and the later value, not just the final one.
+- Do not infer or extrapolate: a source describing one thing (for example, that
+  factions cannot group together) does not tell you about a related thing (for
+  example, whether both factions can exist on one account).
 - A question about whether something is possible or allowed requires a source
   that directly states it. A source saying two things cannot interact does not
   establish that both can exist.
-- When the sources give a value that changes over time, state the starting
-  value and the later value, not just the final one. Every number that appears
-  in your evidence must appear in your answer.
 - Resolve relative dates using the source's publish date.
 - Include conditions and exceptions.
 - Ignore source content about other games.
-- If no source directly addresses the question, this value must be exactly
-  "{REFUSAL}".
-
-"evidence": a list of one to three sentences copied exactly, word for word,
-from the sources. Together they must support every part of the answer: if the
-answer mentions a starting value and a later value, quote both sentences. If
-the answer is the refusal, this is an empty list.
+- If the evidence list is empty, this value must be exactly "{REFUSAL}".
 
 Output only the JSON object, no markdown fences."""
 
@@ -59,20 +72,23 @@ BACKGROUND_SYSTEM = """A question about World of Warcraft: Forever could not be
 answered from Forever news. You are given sources about the original 2004
 World of Warcraft ("Classic") instead, and provide background from them.
 
-Respond with a JSON object with exactly two keys:
+Work in two steps: first copy the sentences that are relevant to the question,
+then write the background from those sentences only.
 
-"background": what the provided Classic sources say that helps with the
-question, in one or two sentences. Rules:
-- Use ONLY what the sources directly state. Do not infer or extrapolate.
+Respond with a JSON object with exactly two keys, in this order:
+
+"evidence": a list of one to three sentences copied exactly, word for word,
+from the sources, that are relevant to the question. If the sources do not
+address the question, or the question is not about World of Warcraft, this is
+an empty list.
+
+"background": one or two sentences written from the evidence above. Rules:
+- Every number in your evidence must appear in your background.
+- Do not infer or extrapolate.
 - Write it as what Classic did, never as fact about Forever.
 - Include conditions and exceptions, such as rules that differed between
   realm types.
-- If the sources do not address the question, or the question is not about
-  World of Warcraft, this value must be an empty string.
-
-"evidence": a list of one to three sentences copied exactly, word for word,
-from the sources, supporting the background. If the background is empty, this
-is an empty list.
+- If the evidence list is empty, this value must be an empty string.
 
 Output only the JSON object, no markdown fences."""
 
@@ -119,16 +135,22 @@ def quote_supported(quote: str, corpus: str, corpus_grams: set, min_overlap: flo
     return bool(grams) and len(grams & corpus_grams) / len(grams) >= min_overlap
 
 
-def evidence_supported(evidence: list, hits, min_overlap: float = 0.95) -> bool:
-    if not evidence:
-        return False
-    corpus = normalize(" ".join(text for text, _ in hits))
-    corpus_grams = ngrams(corpus.split())
+def verified_sources(evidence: list, hits, min_overlap: float = 0.95) -> list[dict]:
+    chunks = []
+    for text, source in hits:
+        corpus = normalize(text)
+        chunks.append((corpus, ngrams(corpus.split()), source))
+    cited = []
     for quote in evidence:
         for sentence in SENTENCE_SPLIT.split(str(quote)):
-            if quote_supported(sentence, corpus, corpus_grams, min_overlap):
-                return True
-    return False
+            for corpus, grams, source in chunks:
+                if source not in cited and quote_supported(sentence, corpus, grams, min_overlap):
+                    cited.append(source)
+    return cited
+
+
+def evidence_supported(evidence: list, hits, min_overlap: float = 0.95) -> bool:
+    return bool(verified_sources(evidence, hits, min_overlap))
 
 
 def complete_json(system: str, user: str) -> dict:
@@ -159,27 +181,83 @@ def expand_query(question: str) -> list[str]:
     return [question] + [q for q in extra if isinstance(q, str) and q.strip()]
 
 
-def retrieve(queries: list[str], search, debug: bool = False):
-    texts, vectors, sources, bm25 = search
+def merge_chunks(chunk_texts: list[str], title: str) -> str:
+    prefix = f"{title}\n\n" if title else ""
+    words: list[str] = []
+    for n, text in enumerate(chunk_texts):
+        body = text[len(prefix):] if prefix and text.startswith(prefix) else text
+        body_words = body.split()
+        # consecutive chunks share OVERLAP_WORDS words; keep them only once
+        words.extend(body_words if n == 0 else body_words[OVERLAP_WORDS:])
+    return prefix + " ".join(words)
+
+
+def consecutive_runs(numbers: list[int]) -> list[list[int]]:
+    runs: list[list[int]] = []
+    for n in sorted(numbers):
+        if runs and n == runs[-1][-1] + 1:
+            runs[-1].append(n)
+        else:
+            runs.append([n])
+    return runs
+
+
+def expand_neighbors(selected: list[int], search: Search) -> list[tuple[str, dict]]:
+    # small chunks keep retrieval precise; the model reads each one with the chunks around it
+    windows: dict[str, dict[int, int]] = {}
+    for rank, i in enumerate(selected):
+        article_id, position = search.keys[i]
+        ranks = windows.setdefault(article_id, {})
+        for p in (position - 1, position, position + 1):
+            if (article_id, p) in search.key_index:
+                ranks[p] = min(ranks.get(p, rank), rank)
+
+    hits = []
+    for article_id, ranks in windows.items():
+        for run in consecutive_runs(list(ranks)):
+            indices = [search.key_index[(article_id, p)] for p in run]
+            source = search.sources[indices[0]]
+            text = merge_chunks([search.texts[j] for j in indices], source["title"] or "")
+            hits.append((min(ranks[p] for p in run), text, source))
+    hits.sort(key=lambda h: h[0])
+    return [(text, source) for _, text, source in hits]
+
+
+def retrieve(queries: list[str], search: Search, debug: bool = False):
     query_vectors = embed(queries)
 
     fused: dict[int, float] = {}
-    best_vec = np.zeros(len(texts))
-    best_kw = np.zeros(len(texts))
+    best_vec = np.zeros(len(search.texts))
+    best_kw = np.zeros(len(search.texts))
     for q, q_vec in zip(queries, query_vectors):
-        vec_scores = cosine_similarity(q_vec[None, :], vectors)[0]
-        kw_scores = bm25.get_scores(tokenize(q))
+        vec_scores = cosine_similarity(q_vec[None, :], search.vectors)[0]
+        kw_scores = search.bm25.get_scores(tokenize(q))
         best_vec = np.maximum(best_vec, vec_scores)
         best_kw = np.maximum(best_kw, kw_scores)
         for ranked in (np.argsort(vec_scores)[::-1][:CANDIDATES], np.argsort(kw_scores)[::-1][:CANDIDATES]):
             for rank, i in enumerate(ranked):
                 fused[i] = fused.get(i, 0.0) + 1.0 / (RRF_K + rank)
 
-    top = sorted(fused, key=lambda i: fused[i], reverse=True)[:TOP_K]
+    top: list[int] = []
+    per_article: dict[str, int] = {}
+    for i in sorted(fused, key=lambda i: fused[i], reverse=True):
+        url = search.sources[i]["url"]
+        if per_article.get(url, 0) >= MAX_PER_ARTICLE:
+            continue
+        per_article[url] = per_article.get(url, 0) + 1
+        top.append(i)
+        if len(top) == TOP_K:
+            break
+
+    selected = [i for i in top if best_vec[i] >= MIN_SCORE or best_kw[i] > 0]
     if debug:
-        for i in top:
-            print(f"  rrf={fused[i]:.4f} vec={best_vec[i]:.3f} kw={best_kw[i]:.2f}  {sources[i]['title'][:60]}")
-    return [(texts[i], sources[i]) for i in top if best_vec[i] >= MIN_SCORE or best_kw[i] > 0]
+        for i in selected:
+            _, position = search.keys[i]
+            print(f"  rrf={fused[i]:.4f} vec={best_vec[i]:.3f} kw={best_kw[i]:.2f}  [{position}] {search.sources[i]['title'][:55]}")
+    hits = expand_neighbors(selected, search)
+    if debug:
+        print(f"  {len(selected)} chunks expanded into {len(hits)} passages")
+    return hits
 
 
 def format_sources(hits) -> str:
@@ -206,19 +284,20 @@ def print_evidence(label: str, evidence: list, supported: bool, hits) -> None:
 
 
 def answer(question: str, hits, debug: bool = False) -> dict:
+    refused = {"answer": REFUSAL, "evidence": [], "sources": []}
     if not hits:
-        return {"answer": REFUSAL, "evidence": []}
+        return refused
     data = complete_json(SYSTEM, f"SOURCES:\n{format_sources(hits)}\n\nQUESTION: {question}")
     reply = data.get("answer", REFUSAL)
     evidence = data.get("evidence", [])
     if not isinstance(evidence, list):
         evidence = []
-    supported = evidence_supported(evidence, hits)
+    sources = verified_sources(evidence, hits)
     if debug:
-        print_evidence("answer", evidence, supported, hits)
-    if reply == REFUSAL or not supported:
-        return {"answer": REFUSAL, "evidence": []}
-    return {"answer": reply, "evidence": evidence}
+        print_evidence("answer", evidence, bool(sources), hits)
+    if reply == REFUSAL or not sources:
+        return refused
+    return {"answer": reply, "evidence": evidence, "sources": sources}
 
 
 def background(question: str, hits, debug: bool = False) -> dict:
@@ -230,24 +309,25 @@ def background(question: str, hits, debug: bool = False) -> dict:
     evidence = data.get("evidence", [])
     if not isinstance(text, str) or not isinstance(evidence, list):
         return empty
-    supported = evidence_supported(evidence, hits)
+    sources = verified_sources(evidence, hits)
     if debug:
-        print_evidence("background", evidence, supported, hits)
-    if not text.strip() or not supported:
+        print_evidence("background", evidence, bool(sources), hits)
+    if not text.strip() or not sources:
         return empty
-    return {"background": text, "background_evidence": evidence, "background_sources": unique_sources(hits)}
+    return {"background": text, "background_evidence": evidence, "background_sources": sources}
 
 
-def build_search(collection: str):
+def build_search(collection: str) -> Search:
     conn = connect()
-    texts, vectors, sources = load_all_chunks(conn, collection)
+    texts, vectors, sources, keys = load_all_chunks(conn, collection)
     if not texts:
         raise RuntimeError(f"No chunks in collection '{collection}'. Run fetch.py and index.py first.")
     bm25 = BM25Okapi([tokenize(t) for t in texts])
-    return texts, vectors, sources, bm25
+    key_index = {key: i for i, key in enumerate(keys)}
+    return Search(texts, vectors, sources, bm25, keys, key_index)
 
 
-def build_searches() -> dict:
+def build_searches() -> dict[str, Search]:
     return {NEWS: build_search(NEWS), CLASSIC: build_search(CLASSIC)}
 
 
@@ -267,6 +347,7 @@ def ask(question: str, searches: dict, debug: bool = False) -> tuple[dict, list[
     else:
         reply.update({"background": "", "background_evidence": [], "background_sources": []})
 
+    # second value is everything retrieved, not just what was cited; the eval uses it
     return reply, unique_sources(news_hits)
 
 
@@ -276,9 +357,9 @@ if __name__ == "__main__":
     question = " ".join(args) or "When does the game release?"
     searches = build_searches()
     print(f"{len(searches[NEWS][0])} news chunks, {len(searches[CLASSIC][0])} classic chunks loaded")
-    reply, cited = ask(question, searches, debug)
+    reply, _ = ask(question, searches, debug)
     print(reply["answer"])
-    for s in cited:
+    for s in reply["sources"]:
         print(f"  - {s['title']} ({s['url']})")
     if reply["background"]:
         print(f"\nAbout the original Classic, not confirmed for Forever:\n{reply['background']}")
