@@ -6,6 +6,8 @@ A question-answering bot for *World of Warcraft: Forever* that keeps itself up t
 
 It collects news articles about the game on a schedule, indexes them, and answers questions using only what it has collected, and cites its sources. If the answer isn't in the collected articles, it says so instead of guessing.
 
+**Try it:** https://wow-forever-rag.onrender.com
+
 ![Screenshot](docs/screenshot.png)
 
 ```
@@ -54,7 +56,7 @@ Classic seed URLs ──► fetch.py ──► data/raw/classic-reference/  (Cla
 
 **Ask.** The question is first rewritten by the model into three alternative phrasings, so a question asking about the "max level" can still match a source that says "adventure to level 60". Every phrasing is run through both BM25 keyword search and cosine similarity over the embeddings, and all the rankings are merged with reciprocal rank fusion, with at most three chunks per article so one long article can't fill every slot. Each retrieved chunk is then sent to the model together with its neighboring chunks from the same article, and adjacent chunks are merged into one passage. The model must first copy the sentences from the sources that answer the question, and then write the answer from them. Those sentences are checked against the retrieved text before the answer is shown; if none of them actually appears there, the answer is replaced with a refusal. Only the articles that contain a verified quote are cited under the answer.
 
-**Update.** `update.py` runs fetch and index together and is scheduled every 6 hours through the OS task scheduler, and notifies the running web server to reload the index.
+**Update.** `update.py` runs fetch and index together. The hosted app runs it by itself every 6 hours in a background thread. The app also reloads its in-memory index whenever `index.sqlite` changes on disk, so a manual `python src/update.py` is picked up without a restart.
 
 **Background.** If the news sources can't answer a question, the same rewritten queries are run against the Classic reference collection, and a second model call produces background about how the original game handled it. That background goes through the same evidence check as answers do; if no quote verifies, nothing is shown. It is labeled as describing the original Classic, not as confirmed for Forever.
 
@@ -87,7 +89,7 @@ python src/ask.py what is Seal of Fury --debug   # shows retrieval scores
 python src/inspect_chunks.py shipping            # shows indexed chunks containing a phrase
 ```
 
-To keep the index current, schedule `src/update.py`. On Windows this is a Task Scheduler job; on Linux the equivalent cron entry is:
+To keep the index current, either put `UPDATE_INTERVAL_HOURS=6` in `.env` so the web app updates itself while it runs, or schedule `src/update.py` with the OS scheduler. On Linux the cron entry is:
 
 ```
 0 */6 * * * cd /path/to/wow-forever-rag && .venv/bin/python src/update.py >> logs/update.log 2>&1
@@ -103,10 +105,26 @@ Open http://127.0.0.1:8000 for a minimal page: type a question, get an answer wi
 
 | Endpoint | Description |
 |---|---|
-| `POST /ask` | `{"question": "..."}` → `{"answer", "evidence", "background", "background_evidence", "background_sources", "sources"}` |
-| `POST /reload` | Reloads the index from disk; called by `update.py` after each scheduled run so new articles are served without a restart. |
+| `POST /ask` | `{"question": "..."}` → `{"answer", "evidence", "sources", "background", "background_evidence", "background_sources"}` |
+| `GET /health` | `{"ready": true, "news_chunks": 700}`. Used by the host's health check. |
 
-The index is loaded once at startup and held in memory, so nothing is read from the database per request. A question costs one rewrite call, one batched embedding call and one answer call. When the news can't answer, the Classic lookup adds one more embedding call and one more model call. Query expansion roughly doubles latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
+The index is held in memory and reloaded only when `index.sqlite` changes, so nothing is read from the database per request. A question costs one rewrite call, one batched embedding call and one answer call. When the news can't answer, the Classic lookup adds one more embedding call and one more model call. Query expansion roughly doubles latency compared to single-query retrieval, in exchange for far better recall on unusual phrasings.
+
+Every question costs an OpenAI call, so the public page is limited: 5 questions per minute and 30 per day for each visitor, 300 per day for the whole bot, and 300 characters per question. The limits can be changed with `VISITOR_PER_MINUTE`, `VISITOR_PER_DAY` and `DAILY_QUESTION_CAP`.
+
+## Deployment
+
+The bot runs on Render as a Docker web service built from the `Dockerfile`, and every merge to `main` deploys automatically. A persistent disk mounted at `/var/data` holds the raw articles and the index, so they survive deploys.
+
+| Variable | Value |
+|---|---|
+| `OPENAI_API_KEY` | A key from an OpenAI project used only by the live bot |
+| `DATA_DIR` | `/var/data` |
+| `UPDATE_INTERVAL_HOURS` | `6` |
+
+The first deploy starts with an empty disk and reports `"ready": false` on `/health`. The existing `data` folder was uploaded once as a zip file, and the app loaded the index as soon as it appeared.
+
+The OpenAI project has a hard monthly spend limit, and the account uses prepaid credits without automatic recharge, so the bill has a ceiling even if every other limit fails.
 
 ## Evaluation
 
@@ -120,7 +138,7 @@ Because the pipeline makes several model calls and the corpus keeps growing, a s
 
 ## Tests
 
-`pytest` runs unit tests for the pure parts of the pipeline: chunking, neighbor expansion, the evidence check, tokenization, the source-specific cleanup, and the evaluation's matching rules. They need no API key and run in a few seconds, and GitHub Actions runs them on every push.
+`pytest` runs unit tests for the pure parts of the pipeline: chunking, neighbor expansion, the evidence check, tokenization, the source-specific cleanup, the rate limiter, and the evaluation's matching rules. They need no API key and run in a few seconds, and GitHub Actions runs them on every push.
 
 They complement the evaluation rather than replace it: the eval measures answer quality end to end but costs API calls and takes minutes, while the unit tests pin down exact behavior cheaply. Several of them are regression tests for real bugs, such as a Blizzard page with invalid structured data and a model quote that merged two sentences. Writing them also found one: curly apostrophes split names like Ula’tek into two tokens, so keyword search missed them.
 
@@ -132,10 +150,12 @@ They complement the evaluation rather than replace it: the eval measures answer 
 - **Hybrid retrieval.** Embeddings capture meaning but underweight exact terms; the game's vocabulary (ability names, item names, zone names) is exactly what keyword search is good at.
 - **Multi-query retrieval.** A question's wording often shares nothing with the source that answers it. Blizzard's announcement says players will "adventure to level 60"; a user asks for the "max level", and neither keyword nor vector search connected them. Rewriting the question into several phrasings before retrieval fixed that class of miss.
 - **Verified evidence.** The model must return verbatim quotes supporting its answer, and those quotes are checked against the retrieved chunks in code before the answer is shown. This caught a subtler kind of hallucination than an ungrounded fact: asked whether both factions could exist on one account, the model reasoned from a source saying they cannot group together and answered "yes": fluent, source-flavored, and unsupported. With the check in place it refuses, because no source sentence says it. Quotes are verified sentence by sentence, because the model often merges adjacent sentences into one quote and alters a word in the join; each sentence must be at least six words long, so a trivial fragment can't count as evidence.
-- **Refusal over guessing.** If nothing relevant is retrieved, the model isn't called at all. If sources are retrieved but don't contain the answer, the model is instructed to say so.
+- **Refusal over guessing.** If nothing relevant is retrieved, no answer is generated. If sources are retrieved but don't contain the answer, the model is instructed to say so.
 - **Two collections, two jobs.** Forever news answers questions; a small Classic reference set only supplies background, and each is retrieved separately. Keeping them apart matters: the Warcraft Wiki says the Classic beta had a level cap of 30, which in a shared pool could easily be retrieved for a question about Forever's beta.
 - **Small to search, wide to read.** Small chunks make retrieval precise, but a fact can sit just past a chunk boundary. The Collector's Edition shipping cost was in the chunk after the one retrieved, so the model saw "there were some issues with shipping costs" and correctly refused. Retrieved chunks are now expanded with their neighbors before being sent to the model. This costs up to three times the tokens per question, which for gpt-4o-mini is still well under a cent.
 - **Quote first, then answer.** The model writes its reply left to right, so when the answer came before the evidence, it answered first and then picked quotes to support what it had already said. That produced answers whose own quotes contradicted them by omission: the evidence said the beta cap starts at 20 and rises to 30, and the answer said 30. With the evidence written first, the answer is built from the quotes rather than justified by them.
+- **No endpoint that makes the server work for free.** An earlier version had a `/reload` endpoint that the update script called. On a public page, anyone can call an endpoint like that. The app now checks the index file's modification time instead, so there is nothing to call.
+- **Cost protection in layers.** Per-visitor limits stop one person from flooding the bot, a daily cap bounds the total, a length limit bounds the cost of a single question, and the spend limit at OpenAI is the backstop that does not depend on my code being right.
 
 ## Limitations
 
@@ -147,6 +167,9 @@ They complement the evaluation rather than replace it: the eval measures answer 
 - The evidence check verifies that at least one supporting sentence appears verbatim in the retrieved text; it does not verify every claim in the answer.
 - The Warcraft Tavern compendium in the Classic reference set was written shortly before Classic launched in 2019, so a few of its statements are predictions rather than facts.
 - Merging chunks relies on the chunk settings the index was built with; after changing them, the index must be rebuilt.
+- The rate limits and the daily count are kept in memory, so a restart or a deploy resets them.
+- The app runs as a single instance, because the disk attaches to one instance and the updater runs inside the app. A deploy causes a few seconds of downtime.
+- The raw articles on the server's disk are the only complete copy. The feed lists only the latest 40 articles, so older ones cannot be fetched again. The host keeps daily snapshots for 7 days.
 
 ## Possible next steps
 
