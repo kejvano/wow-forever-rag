@@ -94,7 +94,11 @@ def fetch_seeds(urls: list[str], collection: str) -> int:
     for url in urls:
         if already_fetched(url, collection):
             continue
-        text, title, published = fetch_article(url)
+        try:
+            text, title, published = fetch_article(url)
+        except requests.RequestException as e:
+            print(f"  failed: {url} ({e})")
+            continue
         if not text:
             print(f"  no text extracted: {url}")
             continue
@@ -120,7 +124,11 @@ def run() -> None:
                 continue
             text = extract_from_feed(entry)
             if not text:
-                text, _, _ = fetch_article(url)
+                try:
+                    text, _, _ = fetch_article(url)
+                except requests.RequestException as e:
+                    print(f"  failed: {url} ({e})")
+                    continue
             text = strip_trailing_nav(text) if text else None
             save(url, entry.get("title", ""), entry.get("published"), text, NEWS)
             new_count += 1
