@@ -1,9 +1,10 @@
 import sqlite3
 from pathlib import Path
+from config import DATA_DIR
 
 import numpy as np
 
-DB_PATH = "data/index.sqlite"
+DB_PATH = DATA_DIR / "index.sqlite"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles (

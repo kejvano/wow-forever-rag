@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 NEWS = "forever-news"
 CLASSIC = "classic-reference"
 
@@ -29,6 +32,7 @@ CLASSIC_SEED_URLS = [
 
 KEYWORDS = ["warcraft forever", "wow forever", "classic+", "classic plus"]
 
-RAW_DIR = "data/raw"
+DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
+RAW_DIR = DATA_DIR / "raw"
 USER_AGENT = "wow-forever-rag/0.1 (personal research project)"
 REQUEST_DELAY_SECONDS = 1.0
